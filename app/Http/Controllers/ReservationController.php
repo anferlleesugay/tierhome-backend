@@ -37,16 +37,18 @@ class ReservationController extends Controller
             }
 
             $validated = $request->validate([
-                'move_in_date' => 'nullable|date|after_or_equal:today',
-                'notes'        => 'nullable|string|max:500',
+                'move_in_date'   => 'nullable|date|after_or_equal:today',
+                'notes'          => 'nullable|string|max:500',
+                'terms_accepted' => 'required|accepted',
             ]);
 
             $reservation = Reservation::create([
-                'tenant_id'    => $user->id,
-                'listing_id'   => $listingId,
-                'status'       => 'pending',
-                'move_in_date' => $validated['move_in_date'] ?? null,
-                'notes'        => $validated['notes'] ?? null,
+                'tenant_id'         => $user->id,
+                'listing_id'        => $listingId,
+                'status'            => 'pending',
+                'move_in_date'      => $validated['move_in_date'] ?? null,
+                'notes'             => $validated['notes'] ?? null,
+                'terms_accepted_at' => now(),
             ]);
 
             $reservation->load(['listing.landlord', 'listing.images', 'tenant']);

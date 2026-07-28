@@ -127,19 +127,20 @@ class ListingController extends Controller
     {
         try {
             $data = $request->validate([
-                'title'           => 'required|string|max:255',
-                'description'     => 'required|string',
-                'price'           => 'required|numeric|min:0',
-                'address'         => 'required|string|max:255',
-                'barangay'        => 'nullable|string|max:255',
-                'property_type'   => 'required|string',
-                'latitude'        => 'nullable|numeric',
-                'longitude'       => 'nullable|numeric',
-                'image'           => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
-                'images.*'        => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
-                'amenities'       => 'nullable|json',
-                'total_slots'     => 'nullable|integer|min:1',
-                'available_slots' => 'nullable|integer|min:0',
+                'title'                 => 'required|string|max:255',
+                'description'           => 'required|string',
+                'terms_and_conditions'  => 'nullable|string',
+                'price'                 => 'required|numeric|min:0',
+                'address'               => 'required|string|max:255',
+                'barangay'              => 'nullable|string|max:255',
+                'property_type'         => 'required|string',
+                'latitude'              => 'nullable|numeric',
+                'longitude'             => 'nullable|numeric',
+                'image'                 => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
+                'images.*'              => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
+                'amenities'             => 'nullable|json',
+                'total_slots'           => 'nullable|integer|min:1',
+                'available_slots'       => 'nullable|integer|min:0',
             ]);
 
             // Set available_slots = total_slots on creation
@@ -211,19 +212,20 @@ class ListingController extends Controller
             }
 
             $data = $request->validate([
-                'title'         => 'sometimes|string|max:255',
-                'description'   => 'sometimes|string',
-                'price'         => 'sometimes|numeric|min:0',
-                'address'       => 'sometimes|string|max:255',
-                'barangay'      => 'nullable|string|max:255',
-                'property_type' => 'sometimes|string',
-                'latitude'      => 'nullable|numeric',
-                'longitude'     => 'nullable|numeric',
-                'image'           => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
-                'images.*'        => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
-                'amenities'       => 'nullable|json',
-                'total_slots'     => 'nullable|integer|min:1',
-                'available_slots' => 'nullable|integer|min:0',
+                'title'                 => 'sometimes|string|max:255',
+                'description'           => 'sometimes|string',
+                'terms_and_conditions'  => 'nullable|string',
+                'price'                 => 'sometimes|numeric|min:0',
+                'address'               => 'sometimes|string|max:255',
+                'barangay'              => 'nullable|string|max:255',
+                'property_type'         => 'sometimes|string',
+                'latitude'              => 'nullable|numeric',
+                'longitude'             => 'nullable|numeric',
+                'image'                 => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
+                'images.*'              => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
+                'amenities'             => 'nullable|json',
+                'total_slots'           => 'nullable|integer|min:1',
+                'available_slots'       => 'nullable|integer|min:0',
             ]);
 
             if ($request->hasFile('image')) {

@@ -12,10 +12,12 @@ class Reservation extends Model
         'status',
         'move_in_date',
         'notes',
+        'terms_accepted_at',
     ];
 
     protected $casts = [
         'move_in_date' => 'date',
+        'terms_accepted_at' => 'datetime',
     ];
 
     public function tenant()

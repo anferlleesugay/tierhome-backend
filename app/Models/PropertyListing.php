@@ -21,6 +21,7 @@ class PropertyListing extends Model
         'is_verified',
         'total_slots',
         'available_slots',
+        'terms_and_conditions',
     ];
 
     public function landlord()
