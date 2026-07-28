@@ -153,6 +153,10 @@ class VerificationController extends Controller
                 'success' => false,
                 'message' => 'This face is already registered with another verified account. One user = one verified account.',
                 'code' => 'DUPLICATE_FACE_DETECTED',
+                'data' => [
+                    'status' => 'rejected',
+                    'rejection_reason' => 'Duplicate face detected - already registered with another account.',
+                ],
             ], 409);
         }
 
