@@ -11,6 +11,7 @@ use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AmenityController;
+use App\Http\Controllers\ChatbotController;
 
 /*
 |--------------------------------------------------------------------------
@@ -44,6 +45,9 @@ Route::get('/profile/{id}', [ProfileController::class, 'show']);
 
 // ✅ Public amenities list
 Route::get('/amenities', [AmenityController::class, 'index']);
+
+// ✅ Chatbot endpoint
+Route::post('/chatbot/message', [ChatbotController::class, 'message']);
 
 Route::middleware('auth:api')->group(function () {
     // ✅ Profile management
