@@ -19,10 +19,10 @@ class VerificationController extends Controller
     {
         $this->rekognition = new RekognitionClient([
             'version' => 'latest',
-            'region' => env('AWS_DEFAULT_REGION', 'ap-southeast-1'),
+            'region' => config('services.aws.region'),
             'credentials' => [
-                'key' => env('AWS_ACCESS_KEY_ID'),
-                'secret' => env('AWS_SECRET_ACCESS_KEY'),
+                'key' => config('services.aws.key'),
+                'secret' => config('services.aws.secret'),
             ],
         ]);
     }
