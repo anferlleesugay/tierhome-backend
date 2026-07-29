@@ -38,6 +38,7 @@ class ReservationController extends Controller
 
             $validated = $request->validate([
                 'move_in_date'   => 'nullable|date|after_or_equal:today',
+                'move_out_date'  => 'nullable|date|after:move_in_date',
                 'notes'          => 'nullable|string|max:500',
                 'terms_accepted' => 'required|accepted',
             ]);
@@ -47,6 +48,7 @@ class ReservationController extends Controller
                 'listing_id'        => $listingId,
                 'status'            => 'pending',
                 'move_in_date'      => $validated['move_in_date'] ?? null,
+                'move_out_date'     => $validated['move_out_date'] ?? null,
                 'notes'             => $validated['notes'] ?? null,
                 'terms_accepted_at' => now(),
             ]);
@@ -83,14 +85,18 @@ class ReservationController extends Controller
     }
 
     /**
-     * CANCEL RESERVATION (Tenant)
+     * CANCEL RESERVATION (Tenant or Landlord)
      */
-    public function cancel($id)
+    public function cancel(Request $request, $id)
     {
         try {
-            $reservation = Reservation::findOrFail($id);
+            $user = auth()->user();
+            $reservation = Reservation::with('listing')->findOrFail($id);
 
-            if ($reservation->tenant_id !== auth()->id()) {
+            $isTenant   = $reservation->tenant_id === $user->id;
+            $isLandlord = $reservation->listing && $reservation->listing->landlord_id === $user->id;
+
+            if (!$isTenant && !$isLandlord) {
                 return response()->json(['success' => false, 'message' => 'Access denied'], 403);
             }
 
@@ -98,8 +104,17 @@ class ReservationController extends Controller
                 return response()->json(['success' => false, 'message' => 'Cannot cancel a ' . $reservation->status . ' reservation'], 422);
             }
 
+            $validated = $request->validate([
+                'reason' => 'nullable|string|max:500',
+            ]);
+
             $wasApproved = $reservation->status === 'approved';
-            $reservation->update(['status' => 'cancelled']);
+
+            $reservation->update([
+                'status'              => 'cancelled',
+                'cancellation_reason' => $validated['reason'] ?? null,
+                'cancelled_by'        => $isTenant ? 'tenant' : 'landlord',
+            ]);
 
             if ($wasApproved) {
                 $listing     = PropertyListing::find($reservation->listing_id);
@@ -167,7 +182,14 @@ class ReservationController extends Controller
                 return response()->json(['success' => false, 'message' => 'This reservation has already been ' . $reservation->status], 422);
             }
 
-            $reservation->update(['status' => $validated['status']]);
+            $updateData = ['status' => $validated['status']];
+
+            if ($validated['status'] === 'rejected') {
+                $updateData['cancellation_reason'] = $validated['reason'] ?? null;
+                $updateData['cancelled_by'] = 'landlord';
+            }
+
+            $reservation->update($updateData);
 
             // ✅ Fresh fetch of listing
             $listing = PropertyListing::find($reservation->listing_id);

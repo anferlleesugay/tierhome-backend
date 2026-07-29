@@ -11,12 +11,16 @@ class Reservation extends Model
         'listing_id',
         'status',
         'move_in_date',
+        'move_out_date',
         'notes',
         'terms_accepted_at',
+        'cancellation_reason',
+        'cancelled_by',
     ];
 
     protected $casts = [
         'move_in_date' => 'date',
+        'move_out_date' => 'date',
         'terms_accepted_at' => 'datetime',
     ];
 
