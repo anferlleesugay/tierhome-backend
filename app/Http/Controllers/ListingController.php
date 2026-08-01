@@ -316,6 +316,14 @@ class ListingController extends Controller
 
             $listing->update(['is_verified' => true, 'status' => 'available']);
 
+            \App\Models\Notification::notify(
+                $listing->landlord_id,
+                'listing_approved',
+                'Listing Approved',
+                "Your listing \"{$listing->title}\" is now live.",
+                '/landlord/listings'
+            );
+
             return response()->json([
                 'success' => true,
                 'data'    => $listing->load(['amenities', 'images']),
@@ -337,6 +345,14 @@ class ListingController extends Controller
             $reason  = $request->input('reason', 'Listing rejected by administrator');
 
             $listing->update(['status' => 'rejected', 'is_verified' => false]);
+
+            \App\Models\Notification::notify(
+                $listing->landlord_id,
+                'listing_rejected',
+                'Listing Rejected',
+                "Your listing \"{$listing->title}\" was rejected. Reason: {$reason}",
+                '/landlord/listings'
+            );
 
             \Log::info("Listing {$id} rejected. Reason: {$reason}");
 

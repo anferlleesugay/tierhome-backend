@@ -16,7 +16,7 @@ class RankingController extends Controller
         $request->validate([
             'gross_income' => 'required|numeric|min:0',
             'monthly_expenses' => 'required|numeric|min:0',
-            'utility_costs' => 'required|numeric|min:0',
+            'utility_costs' => 'nullable|numeric|min:0',
             'available_savings' => 'required|numeric|min:0',
         ]);
 
@@ -35,7 +35,7 @@ class RankingController extends Controller
         $disposableIncome =
             $request->gross_income
             - $request->monthly_expenses
-            - $request->utility_costs;
+            - ($request->utility_costs ?? 0);
 
         $disposableIncome = max($disposableIncome, 0);
 

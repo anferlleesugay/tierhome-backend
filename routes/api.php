@@ -12,6 +12,7 @@ use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AmenityController;
 use App\Http\Controllers\ChatbotController;
+use App\Http\Controllers\NotificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -50,6 +51,11 @@ Route::get('/amenities', [AmenityController::class, 'index']);
 Route::post('/chatbot/message', [ChatbotController::class, 'message']);
 
 Route::middleware('auth:api')->group(function () {
+    // ✅ Notifications
+    Route::get('/notifications',              [NotificationController::class, 'index']);
+    Route::put('/notifications/{id}/read',    [NotificationController::class, 'markAsRead']);
+    Route::put('/notifications/read-all',     [NotificationController::class, 'markAllAsRead']);
+
     // ✅ Profile management
     Route::get('/profile',           [ProfileController::class, 'me']);
     Route::post('/profile/phone',    [ProfileController::class, 'updatePhone']);

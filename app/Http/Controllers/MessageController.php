@@ -57,6 +57,16 @@ class MessageController extends Controller
             $conversation->touch();
             $message->load(['sender', 'replyTo.sender', 'listingCard.images']);
 
+            // ✅ Notify the recipient (whichever party didn't just send this message)
+            $recipientId = $user->id === $conversation->tenant_id ? $conversation->landlord_id : $conversation->tenant_id;
+            \App\Models\Notification::notify(
+                $recipientId,
+                'new_message',
+                'New Message',
+                "{$user->first_name} sent you a message.",
+                $user->role === 'landlord' ? '/tenant/messages' : '/landlord/messages'
+            );
+
             return response()->json([
                 'success' => true,
                 'data' => $message,

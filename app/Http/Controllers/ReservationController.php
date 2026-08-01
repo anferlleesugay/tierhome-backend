@@ -54,6 +54,14 @@ class ReservationController extends Controller
             ]);
 
             $reservation->load(['listing.landlord', 'listing.images', 'tenant']);
+            
+            \App\Models\Notification::notify(
+            $listing->landlord_id,
+            'new_reservation',
+            'New Reservation Request',
+            "{$user->first_name} requested to reserve \"{$listing->title}\".",
+            '/landlord/reservations'
+);
 
             return response()->json([
                 'success' => true,
@@ -115,6 +123,16 @@ class ReservationController extends Controller
                 'cancellation_reason' => $validated['reason'] ?? null,
                 'cancelled_by'        => $isTenant ? 'tenant' : 'landlord',
             ]);
+
+            // Notify the other party (not whoever just cancelled)
+            $notifyUserId = $isTenant ? $reservation->listing->landlord_id : $reservation->tenant_id;
+            \App\Models\Notification::notify(
+                $notifyUserId,
+                'reservation_cancelled',
+                'Reservation Cancelled',
+                "A reservation for \"{$reservation->listing->title}\" was cancelled by the " . ($isTenant ? 'tenant' : 'landlord') . ".",
+                $isTenant ? '/landlord/reservations' : '/tenant/reservations'
+            );
 
             if ($wasApproved) {
                 $listing     = PropertyListing::find($reservation->listing_id);
@@ -190,6 +208,16 @@ class ReservationController extends Controller
             }
 
             $reservation->update($updateData);
+
+            \App\Models\Notification::notify(
+                $reservation->tenant_id,
+                $validated['status'] === 'approved' ? 'reservation_approved' : 'reservation_rejected',
+                $validated['status'] === 'approved' ? 'Reservation Approved' : 'Reservation Rejected',
+                $validated['status'] === 'approved'
+                    ? "Your reservation for \"{$reservation->listing->title}\" was approved."
+                    : "Your reservation for \"{$reservation->listing->title}\" was rejected." . (!empty($validated['reason']) ? " Reason: {$validated['reason']}" : ""),
+                '/tenant/reservations'
+            );
 
             // ✅ Fresh fetch of listing
             $listing = PropertyListing::find($reservation->listing_id);
