@@ -39,6 +39,16 @@ return [
         'model' => env('GEMINI_MODEL', 'gemini-2.5-flash-lite'),
     ],
 
+    'paymongo' => [
+        'secret_key' => env('PAYMONGO_SECRET_KEY'),
+        'public_key' => env('PAYMONGO_PUBLIC_KEY'),
+    ],
+
+    'xendit' => [
+        'secret_key' => env('XENDIT_SECRET_KEY'),
+        'public_key' => env('XENDIT_PUBLIC_KEY'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

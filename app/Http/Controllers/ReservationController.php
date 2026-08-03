@@ -43,6 +43,9 @@ class ReservationController extends Controller
                 'terms_accepted' => 'required|accepted',
             ]);
 
+            // ✅ If listing requires a reservation fee, payment_status starts as 'pending' instead of 'not_required'
+            $paymentStatus = ($listing->reservation_fee && $listing->reservation_fee > 0) ? 'pending' : 'not_required';
+
             $reservation = Reservation::create([
                 'tenant_id'         => $user->id,
                 'listing_id'        => $listingId,
@@ -51,17 +54,18 @@ class ReservationController extends Controller
                 'move_out_date'     => $validated['move_out_date'] ?? null,
                 'notes'             => $validated['notes'] ?? null,
                 'terms_accepted_at' => now(),
+                'payment_status'    => $paymentStatus,
             ]);
 
             $reservation->load(['listing.landlord', 'listing.images', 'tenant']);
-            
+
             \App\Models\Notification::notify(
-            $listing->landlord_id,
-            'new_reservation',
-            'New Reservation Request',
-            "{$user->first_name} requested to reserve \"{$listing->title}\".",
-            '/landlord/reservations'
-);
+                $listing->landlord_id,
+                'new_reservation',
+                'New Reservation Request',
+                "{$user->first_name} requested to reserve \"{$listing->title}\".",
+                '/landlord/reservations'
+            );
 
             return response()->json([
                 'success' => true,
@@ -123,6 +127,11 @@ class ReservationController extends Controller
                 'cancellation_reason' => $validated['reason'] ?? null,
                 'cancelled_by'        => $isTenant ? 'tenant' : 'landlord',
             ]);
+
+            // ✅ Automatically refund via PayMongo sandbox if the reservation fee was already paid
+            if ($reservation->payment_status === 'paid') {
+                (new PaymentController())->refund($reservation);
+            }
 
             // Notify the other party (not whoever just cancelled)
             $notifyUserId = $isTenant ? $reservation->listing->landlord_id : $reservation->tenant_id;
@@ -208,6 +217,11 @@ class ReservationController extends Controller
             }
 
             $reservation->update($updateData);
+
+            // ✅ Automatically refund via PayMongo sandbox if the reservation fee was already paid
+            if ($validated['status'] === 'rejected' && $reservation->payment_status === 'paid') {
+                (new PaymentController())->refund($reservation);
+            }
 
             \App\Models\Notification::notify(
                 $reservation->tenant_id,

@@ -13,6 +13,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AmenityController;
 use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PaymentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -86,6 +87,10 @@ Route::middleware('auth:api')->group(function () {
     Route::post('/reserve/{listingId}', [ReservationController::class, 'reserve']);
     Route::get('/reservations', [ReservationController::class, 'myReservations']);
     Route::put('/reservation/{id}/cancel', [ReservationController::class, 'cancel']);
+
+    // ✅ PayMongo sandbox payment routes (tenant-facing)
+    Route::post('/reservation/{id}/pay',             [PaymentController::class, 'createIntent']);
+    Route::post('/reservation/{id}/confirm-payment', [PaymentController::class, 'confirmPayment']);
 });
 
 Route::middleware(['auth:api', 'verified'])->group(function () {

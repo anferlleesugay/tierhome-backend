@@ -22,6 +22,7 @@ class PropertyListing extends Model
         'total_slots',
         'available_slots',
         'terms_and_conditions',
+        'reservation_fee',
     ];
 
     public function landlord()
