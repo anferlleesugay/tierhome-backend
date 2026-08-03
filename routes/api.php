@@ -14,6 +14,7 @@ use App\Http\Controllers\AmenityController;
 use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\AnalyticsController;
 
 /*
 |--------------------------------------------------------------------------
@@ -96,6 +97,7 @@ Route::middleware('auth:api')->group(function () {
 Route::middleware(['auth:api', 'verified'])->group(function () {
     Route::post('/listings', [ListingController::class, 'store']);
     Route::get('/my-listings', [ListingController::class, 'myListings']);
+    Route::get('/landlord/analytics', [AnalyticsController::class, 'landlordOverview']);
     Route::put('/listings/{id}', [ListingController::class, 'update']);
     Route::post('/listings/{id}', [ListingController::class, 'update']); // for FormData _method spoofing
     Route::delete('/listings/{id}', [ListingController::class, 'destroy']);
@@ -114,6 +116,7 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::post('/admin/verify/{id}/approve', [VerificationController::class, 'approve']);
     Route::post('/admin/verify/{id}/reject', [VerificationController::class, 'reject']);
     Route::get('/admin/verify/faces/verified', [VerificationController::class, 'listVerifiedFaces']);
+    Route::get('/admin/analytics', [AnalyticsController::class, 'adminOverview']);
 
     // ✅ Amenity requests (admin)
     Route::get('/admin/amenity-requests',               [AmenityController::class, 'allRequests']);

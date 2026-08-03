@@ -10,6 +10,8 @@ class RankingController extends Controller
 {
     public function store(Request $request)
     {
+        \App\Models\SearchLog::log('ranking', auth()->id());
+
         // ================================
         // 1. VALIDATION
         // ================================

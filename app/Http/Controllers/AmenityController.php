@@ -54,6 +54,17 @@ class AmenityController extends Controller
             'status'      => 'pending',
         ]);
 
+        // ✅ Notify all admins that a new amenity request needs review
+        \App\Models\User::where('role', 'admin')->get()->each(function ($admin) use ($user, $amenityRequest) {
+            \App\Models\Notification::notify(
+                $admin->id,
+                'amenity_request_pending',
+                'New Amenity Request',
+                "{$user->first_name} requested a new amenity: \"{$amenityRequest->name}\".",
+                '/admin/amenities'
+            );
+        });
+
         return response()->json([
             'success' => true,
             'data'    => $amenityRequest,

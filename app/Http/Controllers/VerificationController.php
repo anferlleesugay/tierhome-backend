@@ -120,6 +120,17 @@ class VerificationController extends Controller
                 'verification_method' => 'automatic',
             ]);
 
+            // ✅ Notify all admins that a verification needs manual review
+            \App\Models\User::where('role', 'admin')->get()->each(function ($admin) use ($user, $score) {
+                \App\Models\Notification::notify(
+                    $admin->id,
+                    'verification_pending_review',
+                    'Identity Verification Needs Review',
+                    "{$user->first_name} {$user->last_name}'s verification was flagged for manual review (score: {$score}%).",
+                    '/admin/verification'
+                );
+            });
+
             return response()->json([
                 'success' => false,
                 'message' => 'ID and selfie do not match. Please try again with clearer images.',

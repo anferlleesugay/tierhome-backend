@@ -15,6 +15,17 @@ class ListingController extends Controller
     public function index(Request $request)
     {
         try {
+            // ✅ Log this search for demand analytics (only when an actual filter was used, to avoid logging every idle page load)
+            if ($request->barangay || $request->budget || $request->type) {
+                \App\Models\SearchLog::log(
+                    'browse',
+                    auth('api')->id(),
+                    $request->barangay !== 'All Barangays' ? $request->barangay : null,
+                    $request->budget,
+                    $request->type !== 'All Types' ? $request->type : null
+                );
+            }
+
             $query = PropertyListing::where('is_verified', true)
                 ->where('status', 'available');
 
@@ -89,6 +100,8 @@ class ListingController extends Controller
     public function nearby(Request $request)
     {
         try {
+            \App\Models\SearchLog::log('nearby', auth('api')->id());
+
             $request->validate([
                 'latitude'  => 'required|numeric',
                 'longitude' => 'required|numeric',
@@ -160,6 +173,17 @@ class ListingController extends Controller
             }
 
             $listing = PropertyListing::create($data);
+
+            // ✅ Notify all admins that a new listing needs review
+            \App\Models\User::where('role', 'admin')->get()->each(function ($admin) use ($listing) {
+                \App\Models\Notification::notify(
+                    $admin->id,
+                    'listing_pending_review',
+                    'New Listing Pending Review',
+                    "\"{$listing->title}\" was submitted and needs approval.",
+                    '/admin/listings'
+                );
+            });
 
             // ✅ Store all images in listing_images table
             $this->saveImages($request, $listing);
