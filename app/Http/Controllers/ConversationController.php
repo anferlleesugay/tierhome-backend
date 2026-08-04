@@ -13,30 +13,39 @@ class ConversationController extends Controller
      * START OR GET CONVERSATION
      * One conversation per tenant+landlord pair
      */
-    public function start(Request $request, $landlordId)
+    public function start(Request $request, $otherUserId)
     {
         try {
             $user = auth()->user();
 
-            if ($user->id === (int)$landlordId) {
+            if ($user->id === (int)$otherUserId) {
                 return response()->json(['success' => false, 'message' => 'Cannot message yourself'], 422);
             }
 
-            $landlord = User::find($landlordId);
-            if (!$landlord) {
+            $otherUser = User::find($otherUserId);
+            if (!$otherUser) {
                 return response()->json(['success' => false, 'message' => 'User not found'], 404);
             }
 
             $listingId = $request->input('listing_id');
 
-            // ✅ ONE conversation per tenant+landlord
-            $conversation = Conversation::where('tenant_id', $user->id)
+            // ✅ Works in both directions: tenant → landlord, or landlord → tenant
+            if ($user->role === 'landlord') {
+                $tenantId   = $otherUserId;
+                $landlordId = $user->id;
+            } else {
+                $tenantId   = $user->id;
+                $landlordId = $otherUserId;
+            }
+
+            // ✅ ONE conversation per tenant+landlord pair
+            $conversation = Conversation::where('tenant_id', $tenantId)
                 ->where('landlord_id', $landlordId)
                 ->first();
 
             if (!$conversation) {
                 $conversation = Conversation::create([
-                    'tenant_id'   => $user->id,
+                    'tenant_id'   => $tenantId,
                     'landlord_id' => $landlordId,
                     'listing_id'  => $listingId,
                 ]);

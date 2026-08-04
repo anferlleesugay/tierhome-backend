@@ -25,7 +25,7 @@ class PaymentController extends Controller
     {
         try {
             $user = auth()->user();
-            $reservation = Reservation::with('listing')->findOrFail($reservationId);
+            $reservation = Reservation::with(['listing', 'tenant'])->findOrFail($reservationId);
 
             if ($reservation->tenant_id !== $user->id) {
                 return response()->json(['success' => false, 'message' => 'Access denied'], 403);
@@ -116,11 +116,14 @@ class PaymentController extends Controller
                     'paid_at' => now(),
                 ]);
 
+                // ✅ This is now the actual "new reservation" notification for fee-required listings —
+                // fires once payment is confirmed, not when the reservation is first created (avoids
+                // notifying landlords about abandoned/never-paid attempts)
                 \App\Models\Notification::notify(
                     $reservation->listing->landlord_id,
-                    'reservation_paid',
-                    'Reservation Fee Paid',
-                    "{$user->first_name} paid the reservation fee for \"{$reservation->listing->title}\" (sandbox transaction).",
+                    'new_reservation',
+                    'New Reservation Request',
+                    "{$reservation->tenant->first_name} reserved \"{$reservation->listing->title}\" and paid the reservation fee.",
                     '/landlord/reservations'
                 );
 

@@ -26,14 +26,27 @@ class ReservationController extends Controller
                 return response()->json(['success' => false, 'message' => 'This property is not available for reservation'], 422);
             }
 
-            // Check if tenant already has active reservation for this listing
+            // Check if tenant already has an active reservation for this listing
             $existing = Reservation::where('tenant_id', $user->id)
                 ->where('listing_id', $listingId)
                 ->whereNotIn('status', ['cancelled', 'rejected'])
                 ->first();
 
             if ($existing) {
-                return response()->json(['success' => false, 'message' => 'You already have a ' . $existing->status . ' reservation for this property'], 422);
+                // ✅ If the existing reservation never actually got paid (fee required but abandoned),
+                // treat it as void and let the tenant start fresh instead of getting stuck.
+                $feeRequired = $listing->reservation_fee && $listing->reservation_fee > 0;
+                $neverPaid   = in_array($existing->payment_status, ['pending', 'refund_failed']) || !$existing->payment_status;
+
+                if ($feeRequired && $neverPaid) {
+                    $existing->update([
+                        'status' => 'cancelled',
+                        'cancellation_reason' => 'Abandoned — reservation fee was never completed',
+                        'cancelled_by' => 'system',
+                    ]);
+                } else {
+                    return response()->json(['success' => false, 'message' => 'You already have a ' . $existing->status . ' reservation for this property'], 422);
+                }
             }
 
             $validated = $request->validate([
@@ -59,13 +72,17 @@ class ReservationController extends Controller
 
             $reservation->load(['listing.landlord', 'listing.images', 'tenant']);
 
-            \App\Models\Notification::notify(
-                $listing->landlord_id,
-                'new_reservation',
-                'New Reservation Request',
-                "{$user->first_name} requested to reserve \"{$listing->title}\".",
-                '/landlord/reservations'
-            );
+            // ✅ Only notify the landlord immediately if no payment is required —
+            // if a fee is required, we wait until payment actually succeeds (see PaymentController::confirmPayment)
+            if ($paymentStatus === 'not_required') {
+                \App\Models\Notification::notify(
+                    $listing->landlord_id,
+                    'new_reservation',
+                    'New Reservation Request',
+                    "{$user->first_name} requested to reserve \"{$listing->title}\".",
+                    '/landlord/reservations'
+                );
+            }
 
             return response()->json([
                 'success' => true,
@@ -80,12 +97,22 @@ class ReservationController extends Controller
 
     /**
      * GET MY RESERVATIONS (Tenant)
+     * Hides reservations where a fee is required but was never actually paid.
      */
     public function myReservations()
     {
         try {
-            $reservations = Reservation::where('tenant_id', auth()->id())
+            $userId = auth()->id();
+
+            $reservations = Reservation::where('tenant_id', $userId)
                 ->with(['listing.landlord', 'listing.images'])
+                ->where(function ($q) {
+                    $q->whereHas('listing', function ($q2) {
+                        $q2->where(function ($q3) {
+                            $q3->whereNull('reservation_fee')->orWhere('reservation_fee', '<=', 0);
+                        });
+                    })->orWhere('payment_status', 'paid');
+                })
                 ->orderBy('created_at', 'desc')
                 ->get();
 
@@ -128,7 +155,7 @@ class ReservationController extends Controller
                 'cancelled_by'        => $isTenant ? 'tenant' : 'landlord',
             ]);
 
-            // ✅ Automatically refund via PayMongo sandbox if the reservation fee was already paid
+            // ✅ Automatically refund via Xendit sandbox if the reservation fee was already paid
             if ($reservation->payment_status === 'paid') {
                 (new PaymentController())->refund($reservation);
             }
@@ -166,6 +193,7 @@ class ReservationController extends Controller
 
     /**
      * GET LANDLORD'S RESERVATIONS
+     * Hides reservations where a fee is required but was never actually paid.
      */
     public function landlordReservations()
     {
@@ -176,6 +204,13 @@ class ReservationController extends Controller
 
             $reservations = Reservation::whereIn('listing_id', $listingIds)
                 ->with(['tenant', 'listing.images'])
+                ->where(function ($q) {
+                    $q->whereHas('listing', function ($q2) {
+                        $q2->where(function ($q3) {
+                            $q3->whereNull('reservation_fee')->orWhere('reservation_fee', '<=', 0);
+                        });
+                    })->orWhere('payment_status', 'paid');
+                })
                 ->orderBy('created_at', 'desc')
                 ->get();
 
@@ -218,7 +253,7 @@ class ReservationController extends Controller
 
             $reservation->update($updateData);
 
-            // ✅ Automatically refund via PayMongo sandbox if the reservation fee was already paid
+            // ✅ Automatically refund via Xendit sandbox if the reservation fee was already paid
             if ($validated['status'] === 'rejected' && $reservation->payment_status === 'paid') {
                 (new PaymentController())->refund($reservation);
             }
