@@ -43,7 +43,10 @@ class Notification extends Model
      *
      * - Active on the app right now (within the active window)   → push only
      * - Active on the web right now (within the active window)   → email only (in-app bell already covers on-site visibility)
-     * - Not recently active anywhere                              → fall back to push if a device token exists, otherwise email
+     * - Not recently active anywhere within the window            → we genuinely don't know which channel
+     *                                                                will reach them, so ALWAYS send email
+     *                                                                (guaranteed-reach channel), plus push too
+     *                                                                if a device happens to be registered.
      */
     public static function notify($userId, $type, $title, $message, $link = null)
     {
@@ -77,11 +80,12 @@ class Notification extends Model
             $sendEmail = true;
 
         } else {
-            // Not recently active anywhere — reach them however we can
+            // Not recently active anywhere within the window — we genuinely don't know
+            // which channel will actually reach them, so cover both instead of gambling
+            // on just one and risking a missed notification (as happened before this fix).
+            $sendEmail = true;
             if ($hasDevice) {
                 $sendPush = true;
-            } else {
-                $sendEmail = true;
             }
         }
 
