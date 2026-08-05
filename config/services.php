@@ -38,6 +38,10 @@ return [
         'key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL', 'gemini-2.5-flash-lite'),
     ],
+    
+    'firebase' => [
+        'credentials' => base_path(env('FIREBASE_CREDENTIALS')),
+    ],
 
     'paymongo' => [
         'secret_key' => env('PAYMONGO_SECRET_KEY'),

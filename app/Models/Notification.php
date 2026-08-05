@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use App\Mail\NotificationMail;
+use App\Services\FirebaseService;
 
 class Notification extends Model
 {
@@ -22,6 +23,19 @@ class Notification extends Model
         'read_at' => 'datetime',
     ];
 
+    /**
+     * Notification types considered "high-stakes" — infrequent, consequential events
+     * where a permanent email record is valuable even for users who also get push.
+     */
+    protected static $highStakesTypes = [
+        'reservation_approved',
+        'reservation_rejected',
+        'reservation_cancelled',
+        'reservation_paid',
+        'listing_approved',
+        'listing_rejected',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
@@ -29,9 +43,13 @@ class Notification extends Model
 
     /**
      * Convenience helper to create a notification from anywhere in the app.
-     * Creates the in-app notification AND sends an email — one call does both.
+     * Handles in-app notification + push + email, following this logic:
      *
-     * Usage: Notification::notify($userId, 'reservation_approved', 'Reservation Approved', 'Your reservation for X was approved.', '/tenant/reservations');
+     * - User has a registered device (app installed):
+     *     - High-stakes event (approvals, payments, refunds) → push AND email
+     *     - Frequent/low-stakes event (messages, new requests) → push ONLY
+     * - User has NO registered device (web-only):
+     *     - Always email, regardless of event type — it's their only off-site channel
      */
     public static function notify($userId, $type, $title, $message, $link = null)
     {
@@ -40,22 +58,37 @@ class Notification extends Model
         $notification = self::create([
             'user_id' => $userId,
             'type'    => $type,
+            'link'    => $link,
             'title'   => $title,
             'message' => $message,
-            'link'    => $link,
         ]);
 
-        // ✅ Also send an email — wrapped in try/catch so a mail failure
-        // never breaks the actual reservation/message/listing action itself
-        try {
-            $user = User::find($userId);
-            if ($user && $user->email) {
-                Mail::to($user->email)->send(
-                    new NotificationMail($title, $message, $link, $user->first_name ?? 'there')
-                );
+        $hasDevice = DeviceToken::where('user_id', $userId)->exists();
+        $isHighStakes = in_array($type, self::$highStakesTypes);
+
+        // ✅ Push — sent whenever a device is registered, for every event type
+        if ($hasDevice) {
+            try {
+                app(FirebaseService::class)->sendToUser($userId, $title, $message, $link);
+            } catch (\Exception $e) {
+                Log::warning('Failed to send push notification: ' . $e->getMessage());
             }
-        } catch (\Exception $e) {
-            Log::warning('Failed to send notification email: ' . $e->getMessage());
+        }
+
+        // ✅ Email — sent if the user has no device (web-only), OR the event is high-stakes
+        $shouldEmail = !$hasDevice || $isHighStakes;
+
+        if ($shouldEmail) {
+            try {
+                $user = User::find($userId);
+                if ($user && $user->email) {
+                    Mail::to($user->email)->send(
+                        new NotificationMail($title, $message, $link, $user->first_name ?? 'there')
+                    );
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to send notification email: ' . $e->getMessage());
+            }
         }
 
         return $notification;

@@ -15,6 +15,7 @@ use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\DeviceTokenController;
 
 /*
 |--------------------------------------------------------------------------
@@ -57,6 +58,10 @@ Route::middleware('auth:api')->group(function () {
     Route::get('/notifications',              [NotificationController::class, 'index']);
     Route::put('/notifications/{id}/read',    [NotificationController::class, 'markAsRead']);
     Route::put('/notifications/read-all',     [NotificationController::class, 'markAllAsRead']);
+
+    // ✅ Push Notification Device Tokens
+    Route::post('/device-token',        [DeviceTokenController::class, 'register']);
+    Route::delete('/device-token',      [DeviceTokenController::class, 'unregister']);
 
     // ✅ Profile management
     Route::get('/profile',           [ProfileController::class, 'me']);
