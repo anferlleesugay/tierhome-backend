@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use App\Mail\NotificationMail;
 use App\Services\FirebaseService;
+use Carbon\Carbon;
 
 class Notification extends Model
 {
@@ -24,17 +25,11 @@ class Notification extends Model
     ];
 
     /**
-     * Notification types considered "high-stakes" — infrequent, consequential events
-     * where a permanent email record is valuable even for users who also get push.
+     * How recently a user must have made a request on a platform to be
+     * considered "currently active" there. Matches common practice
+     * (e.g. Facebook-style presence windows).
      */
-    protected static $highStakesTypes = [
-        'reservation_approved',
-        'reservation_rejected',
-        'reservation_cancelled',
-        'reservation_paid',
-        'listing_approved',
-        'listing_rejected',
-    ];
+    const ACTIVE_WINDOW_MINUTES = 5;
 
     public function user()
     {
@@ -43,13 +38,12 @@ class Notification extends Model
 
     /**
      * Convenience helper to create a notification from anywhere in the app.
-     * Handles in-app notification + push + email, following this logic:
+     * Routes between push and email based on which platform the user is
+     * CURRENTLY active on, not just whether they have the app installed:
      *
-     * - User has a registered device (app installed):
-     *     - High-stakes event (approvals, payments, refunds) → push AND email
-     *     - Frequent/low-stakes event (messages, new requests) → push ONLY
-     * - User has NO registered device (web-only):
-     *     - Always email, regardless of event type — it's their only off-site channel
+     * - Active on the app right now (within the active window)   → push only
+     * - Active on the web right now (within the active window)   → email only (in-app bell already covers on-site visibility)
+     * - Not recently active anywhere                              → fall back to push if a device token exists, otherwise email
      */
     public static function notify($userId, $type, $title, $message, $link = null)
     {
@@ -63,11 +57,35 @@ class Notification extends Model
             'message' => $message,
         ]);
 
-        $hasDevice = DeviceToken::where('user_id', $userId)->exists();
-        $isHighStakes = in_array($type, self::$highStakesTypes);
+        $user = User::find($userId);
+        if (!$user) return $notification;
 
-        // ✅ Push — sent whenever a device is registered, for every event type
-        if ($hasDevice) {
+        $isRecentlyActive = $user->last_active_at
+            && Carbon::parse($user->last_active_at)->diffInMinutes(now()) <= self::ACTIVE_WINDOW_MINUTES;
+
+        $hasDevice = DeviceToken::where('user_id', $userId)->exists();
+
+        $sendPush  = false;
+        $sendEmail = false;
+
+        if ($isRecentlyActive && $user->last_active_platform === 'app') {
+            // Currently using the app — push only
+            $sendPush = true;
+
+        } elseif ($isRecentlyActive && $user->last_active_platform === 'web') {
+            // Currently using the website — email only (in-app bell already visible to them on-site)
+            $sendEmail = true;
+
+        } else {
+            // Not recently active anywhere — reach them however we can
+            if ($hasDevice) {
+                $sendPush = true;
+            } else {
+                $sendEmail = true;
+            }
+        }
+
+        if ($sendPush) {
             try {
                 app(FirebaseService::class)->sendToUser($userId, $title, $message, $link);
             } catch (\Exception $e) {
@@ -75,13 +93,9 @@ class Notification extends Model
             }
         }
 
-        // ✅ Email — sent if the user has no device (web-only), OR the event is high-stakes
-        $shouldEmail = !$hasDevice || $isHighStakes;
-
-        if ($shouldEmail) {
+        if ($sendEmail) {
             try {
-                $user = User::find($userId);
-                if ($user && $user->email) {
+                if ($user->email) {
                     Mail::to($user->email)->send(
                         new NotificationMail($title, $message, $link, $user->first_name ?? 'there')
                     );

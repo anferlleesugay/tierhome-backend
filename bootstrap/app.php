@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'verified' => \App\Http\Middleware\VerifiedUser::class,
             'admin'    => \App\Http\Middleware\AdminOnly::class,
         ]);
+        $middleware->appendToGroup('api', \App\Http\Middleware\TrackActivePlatform::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
