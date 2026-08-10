@@ -173,7 +173,8 @@ class AnalyticsController extends Controller
                 ->withCount(['reservations as approved_reservations' => function ($q) {
                     $q->where('status', 'approved');
                 }])
-                ->get(['id', 'title', 'price', 'status', 'barangay']);
+                ->with('images')
+                ->get(['id', 'title', 'price', 'status', 'barangay', 'is_verified']);
 
             $summary = [
                 'total_listings'       => $listingIds->count(),
@@ -212,6 +213,269 @@ class AnalyticsController extends Controller
 
         } catch (\Exception $e) {
             Log::error('LandlordOverview analytics error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function landlordOverviewForAdmin($landlordId)
+    {
+        try {
+            $landlord = User::where('id', $landlordId)->where('role', 'landlord')->firstOrFail();
+ 
+            $sixMonthsAgo = Carbon::now()->subMonths(5)->startOfMonth();
+ 
+            $listingIds = PropertyListing::where('landlord_id', $landlordId)->pluck('id');
+            $landlordBarangays = PropertyListing::where('landlord_id', $landlordId)->pluck('barangay')->filter()->unique();
+ 
+            $reservationsByMonth = Reservation::whereIn('listing_id', $listingIds)
+                ->where('created_at', '>=', $sixMonthsAgo)
+                ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+                ->groupBy('month')
+                ->orderBy('month')
+                ->get();
+            $monthlyData = $this->fillMissingMonths($reservationsByMonth, $sixMonthsAgo);
+ 
+            $searchesByMonth = SearchLog::where('created_at', '>=', $sixMonthsAgo)
+                ->whereIn(\DB::raw("TRIM(REPLACE(LOWER(barangay), 'barangay', ''))"), $landlordBarangays->map(fn($b) => strtolower(trim($b))))
+                ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+                ->groupBy('month')
+                ->orderBy('month')
+                ->get();
+            $searchMonthlyData = $this->fillMissingMonths($searchesByMonth, $sixMonthsAgo);
+ 
+            $totalRevenue = Reservation::whereIn('listing_id', $listingIds)
+                ->where('payment_status', 'paid')
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->sum('property_listings.reservation_fee');
+ 
+            $revenueByMonth = Reservation::whereIn('listing_id', $listingIds)
+                ->where('payment_status', 'paid')
+                ->where('reservations.created_at', '>=', $sixMonthsAgo)
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->selectRaw("DATE_FORMAT(reservations.created_at, '%Y-%m') as month, SUM(property_listings.reservation_fee) as total")
+                ->groupBy('month')
+                ->orderBy('month')
+                ->get();
+            $revenueMonthlyData = $this->fillMissingMonths($revenueByMonth, $sixMonthsAgo, 'total');
+ 
+            $listingPerformance = PropertyListing::where('landlord_id', $landlordId)
+                ->withCount(['reservations as total_reservations'])
+                ->withCount(['reservations as approved_reservations' => function ($q) {
+                    $q->where('status', 'approved');
+                }])
+                ->with('images')
+                ->get(['id', 'title', 'price', 'status', 'barangay', 'is_verified']);
+ 
+            $summary = [
+                'total_listings'       => $listingIds->count(),
+                'total_reservations'   => Reservation::whereIn('listing_id', $listingIds)->count(),
+                'pending_reservations' => Reservation::whereIn('listing_id', $listingIds)->where('status', 'pending')->count(),
+                'approved_reservations' => Reservation::whereIn('listing_id', $listingIds)->where('status', 'approved')->count(),
+                'total_revenue'        => (float) $totalRevenue,
+                'area_searches'        => $searchMonthlyData->sum('count'),
+            ];
+ 
+            $demandForecast = $this->linearRegressionForecastMulti($searchMonthlyData->pluck('count')->toArray(), 3);
+            $reservationForecast = $this->linearRegressionForecastMulti($monthlyData->pluck('count')->toArray(), 3);
+ 
+            $insight = $this->generateInsight(
+                "tenant search activity and reservation requests for {$landlord->first_name} {$landlord->last_name}'s listings",
+                $searchMonthlyData->pluck('count')->toArray(),
+                $demandForecast[0] ?? 0,
+                $monthlyData->pluck('count')->toArray()
+            );
+ 
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'landlord'               => $landlord->only(['id', 'first_name', 'last_name', 'email', 'profile_picture']),
+                    'summary'                => $summary,
+                    'reservations_by_month'  => $monthlyData,
+                    'searches_by_month'      => $searchMonthlyData,
+                    'revenue_by_month'       => $revenueMonthlyData,
+                    'listing_performance'    => $listingPerformance,
+                    'forecast' => [
+                        'demand_next_3_months'       => $demandForecast,
+                        'reservations_next_3_months' => $reservationForecast,
+                        'insight'                      => $insight,
+                    ],
+                ],
+            ]);
+ 
+        } catch (\Exception $e) {
+            Log::error('landlordOverviewForAdmin error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+ 
+    /**
+     * Per-listing analytics — accessible by admin (any listing) or the owning landlord (their own only).
+     * Note: tenant search demand is only ever logged at the barangay level (see SearchLog), never
+     * per-listing, so "area context" here reflects the listing's barangay, not the listing itself.
+     */
+    public function listingAnalytics($id)
+    {
+        try {
+            $listing = PropertyListing::with('images')->findOrFail($id);
+
+            $user = auth()->user();
+            if ($user->role !== 'admin' && (int) $listing->landlord_id !== (int) $user->id) {
+                return response()->json(['success' => false, 'message' => 'You are not authorized to view this listing\'s analytics.'], 403);
+            }
+
+            $sixMonthsAgo = Carbon::now()->subMonths(5)->startOfMonth();
+
+            $reservationsByMonth = Reservation::where('listing_id', $id)
+                ->where('created_at', '>=', $sixMonthsAgo)
+                ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+                ->groupBy('month')
+                ->orderBy('month')
+                ->get();
+            $monthlyData = $this->fillMissingMonths($reservationsByMonth, $sixMonthsAgo);
+
+            // Area-level context only — searches are logged per barangay, not per listing
+            $barangayNormalized = strtolower(trim(str_ireplace('barangay', '', $listing->barangay ?? '')));
+            $searchesByMonth = $barangayNormalized !== '' ? SearchLog::where('created_at', '>=', $sixMonthsAgo)
+                ->whereRaw("TRIM(REPLACE(LOWER(barangay), 'barangay', '')) = ?", [$barangayNormalized])
+                ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+                ->groupBy('month')
+                ->orderBy('month')
+                ->get() : collect();
+            $searchMonthlyData = $this->fillMissingMonths($searchesByMonth, $sixMonthsAgo);
+
+            $fee = (float) ($listing->reservation_fee ?? 0);
+            $paidByMonth = Reservation::where('listing_id', $id)
+                ->where('payment_status', 'paid')
+                ->where('created_at', '>=', $sixMonthsAgo)
+                ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+                ->groupBy('month')
+                ->orderBy('month')
+                ->get();
+            $revenueMonthlyData = $this->fillMissingMonths($paidByMonth, $sixMonthsAgo)
+                ->map(fn($row) => ['month' => $row['month'], 'count' => $row['count'] * $fee]);
+
+            $savedCount = \App\Models\SavedListing::where('listing_id', $id)->count();
+
+            $summary = [
+                'total_reservations'    => Reservation::where('listing_id', $id)->count(),
+                'pending_reservations'  => Reservation::where('listing_id', $id)->where('status', 'pending')->count(),
+                'approved_reservations' => Reservation::where('listing_id', $id)->where('status', 'approved')->count(),
+                'rejected_reservations' => Reservation::where('listing_id', $id)->where('status', 'rejected')->count(),
+                'total_revenue'         => (float) (Reservation::where('listing_id', $id)->where('payment_status', 'paid')->count() * $fee),
+                'saved_count'           => $savedCount,
+                'area_searches'         => $searchMonthlyData->sum('count'),
+            ];
+
+            $demandForecast = $this->linearRegressionForecastMulti($searchMonthlyData->pluck('count')->toArray(), 3);
+            $reservationForecast = $this->linearRegressionForecastMulti($monthlyData->pluck('count')->toArray(), 3);
+
+            $insight = $this->generateInsight(
+                "tenant interest and reservation activity specifically for the listing \"{$listing->title}\"",
+                $searchMonthlyData->pluck('count')->toArray(),
+                $demandForecast[0] ?? 0,
+                $monthlyData->pluck('count')->toArray()
+            );
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'listing'               => $listing->only(['id', 'title', 'price', 'status', 'barangay', 'is_verified', 'property_type', 'reservation_fee']),
+                    'images'                => $listing->images,
+                    'summary'               => $summary,
+                    'reservations_by_month' => $monthlyData,
+                    'searches_by_month'     => $searchMonthlyData,
+                    'revenue_by_month'      => $revenueMonthlyData,
+                    'forecast' => [
+                        'demand_next_3_months'       => $demandForecast,
+                        'reservations_next_3_months' => $reservationForecast,
+                        'insight'                     => $insight,
+                    ],
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('listingAnalytics error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * ADMIN: every listing platform-wide (regardless of owner), with quick stats each.
+     * Closes the "admin should see a summary of reports for all apartments" gap —
+     * complements listingAnalytics() (one listing, deep dive) and landlordOverviewForAdmin()
+     * (one owner's listings) with an owner-agnostic, all-listings-at-a-glance view.
+     */
+    public function allListingsSummary()
+    {
+        try {
+            $listings = PropertyListing::with(['landlord:id,first_name,last_name,email', 'images'])
+                ->withCount(['reservations as total_reservations'])
+                ->withCount(['reservations as approved_reservations' => function ($q) {
+                    $q->where('status', 'approved');
+                }])
+                ->withCount(['reservations as pending_reservations' => function ($q) {
+                    $q->where('status', 'pending');
+                }])
+                ->get(['id', 'title', 'landlord_id', 'price', 'status', 'barangay', 'is_verified', 'reservation_fee']);
+
+            // Single grouped query for paid-reservation counts and saved counts across ALL
+            // listings at once, instead of querying per listing (N+1).
+            $paidCounts = Reservation::where('payment_status', 'paid')
+                ->selectRaw('listing_id, COUNT(*) as paid_count')
+                ->groupBy('listing_id')
+                ->pluck('paid_count', 'listing_id');
+
+            $savedCounts = \App\Models\SavedListing::selectRaw('listing_id, COUNT(*) as cnt')
+                ->groupBy('listing_id')
+                ->pluck('cnt', 'listing_id');
+
+            $listings->each(function ($listing) use ($paidCounts, $savedCounts) {
+                $paid = $paidCounts[$listing->id] ?? 0;
+                $listing->total_revenue = (float) ($paid * ($listing->reservation_fee ?? 0));
+                $listing->saved_count   = $savedCounts[$listing->id] ?? 0;
+            });
+
+            $summary = [
+                'total_listings'      => $listings->count(),
+                'verified_listings'   => $listings->where('is_verified', true)->count(),
+                'total_reservations'  => (int) $listings->sum('total_reservations'),
+                'total_revenue'       => (float) $listings->sum('total_revenue'),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'listings' => $listings,
+                    'summary'  => $summary,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('allListingsSummary error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * ADMIN: list all landlords with basic stats, for the "click into a landlord" list view
+     */
+    public function landlordsList()
+    {
+        try {
+            $landlords = User::where('role', 'landlord')
+                ->get(['id', 'first_name', 'last_name', 'email', 'profile_picture', 'is_active']);
+ 
+            // Attach listing count per landlord without assuming a relationship exists
+            $counts = PropertyListing::selectRaw('landlord_id, COUNT(*) as cnt')
+                ->groupBy('landlord_id')
+                ->pluck('cnt', 'landlord_id');
+ 
+            $landlords->each(function ($l) use ($counts) {
+                $l->listings_count = $counts[$l->id] ?? 0;
+            });
+ 
+            return response()->json(['success' => true, 'data' => $landlords]);
+        } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }

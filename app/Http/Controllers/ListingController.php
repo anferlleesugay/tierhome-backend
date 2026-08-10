@@ -27,7 +27,8 @@ class ListingController extends Controller
             }
 
             $query = PropertyListing::where('is_verified', true)
-                ->where('status', 'available');
+                ->where('status', 'available')
+                ->whereHas('landlord', fn($q) => $q->where('is_active', true));
 
             if ($request->barangay && $request->barangay !== 'All Barangays') {
                 $query->where('barangay', $request->barangay);
@@ -83,6 +84,14 @@ class ListingController extends Controller
                 }
             }
 
+            // Block listings whose landlord account has been deactivated
+            if (!$listing->landlord || !$listing->landlord->is_active) {
+                $isAdmin = $user && $user->role === 'admin';
+                if (!$isAdmin) {
+                    return response()->json(['success' => false, 'message' => 'This listing is currently unavailable.'], 403);
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'data'    => $listing,
@@ -117,6 +126,7 @@ class ListingController extends Controller
 
             $listings = PropertyListing::where('is_verified', true)
                 ->where('status', 'available')
+                ->whereHas('landlord', fn($q) => $q->where('is_active', true))
                 ->whereBetween('latitude', [$latitude - $latOffset, $latitude + $latOffset])
                 ->whereBetween('longitude', [$longitude - $lonOffset, $longitude + $lonOffset])
                 ->with(['amenities', 'images'])

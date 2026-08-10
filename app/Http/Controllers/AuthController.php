@@ -132,9 +132,21 @@ class AuthController extends Controller
             ], 401);
         }
 
+        $user = auth()->user();
+
+        if (!$user->is_active) {
+            JWTAuth::setToken($token)->invalidate();
+            return response()->json([
+                'success' => false,
+                'data'    => null,
+                'message' => 'This account has been deactivated. Please contact support if you believe this is an error.',
+                'deactivated' => true,
+            ], 403);
+        }
+
         return response()->json([
             'success' => true,
-            'data'    => ['token' => $token, 'user' => auth()->user()],
+            'data'    => ['token' => $token, 'user' => $user],
             'message' => 'Login successful',
         ]);
     }

@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'verified' => \App\Http\Middleware\VerifiedUser::class,
             'admin'    => \App\Http\Middleware\AdminOnly::class,
+            'active'   => \App\Http\Middleware\EnsureAccountActive::class,
         ]);
         $middleware->appendToGroup('api', \App\Http\Middleware\TrackActivePlatform::class);
     })

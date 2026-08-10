@@ -16,6 +16,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\DeviceTokenController;
+use App\Http\Controllers\DeactivationRequestController;
 
 /*
 |--------------------------------------------------------------------------
@@ -30,11 +31,14 @@ Route::prefix('auth')->group(function () {
     Route::post('/register',        [AuthController::class, 'register']);
     Route::post('/login',           [AuthController::class, 'login']);
 
+    // Deactivated account requesting reactivation — public, verifies credentials itself
+    Route::post('/request-reactivation', [DeactivationRequestController::class, 'requestReactivation']);
+
     // Password reset
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/reset-password',  [AuthController::class, 'resetPassword']);
 
-    Route::middleware('auth:api')->group(function () {
+    Route::middleware(['auth:api', 'active'])->group(function () {
         Route::get('/me',          [AuthController::class, 'me']);
         Route::post('/logout',     [AuthController::class, 'logout']);
     });
@@ -53,7 +57,7 @@ Route::get('/amenities', [AmenityController::class, 'index']);
 // ✅ Chatbot endpoint
 Route::post('/chatbot/message', [ChatbotController::class, 'message']);
 
-Route::middleware('auth:api')->group(function () {
+Route::middleware(['auth:api', 'active'])->group(function () {
     // ✅ Notifications
     Route::get('/notifications',              [NotificationController::class, 'index']);
     Route::put('/notifications/{id}/read',    [NotificationController::class, 'markAsRead']);
@@ -62,6 +66,11 @@ Route::middleware('auth:api')->group(function () {
     // ✅ Push Notification Device Tokens
     Route::post('/device-token',        [DeviceTokenController::class, 'register']);
     Route::delete('/device-token',      [DeviceTokenController::class, 'unregister']);
+
+    // ✅ Account deactivation (self-request, admin approves)
+    Route::post('/account/deactivate',        [DeactivationRequestController::class, 'submit']);
+    Route::get('/account/deactivate/status',  [DeactivationRequestController::class, 'myStatus']);
+    Route::delete('/account/deactivate/{id}', [DeactivationRequestController::class, 'cancel']);
 
     // ✅ Profile management
     Route::get('/profile',           [ProfileController::class, 'me']);
@@ -97,9 +106,12 @@ Route::middleware('auth:api')->group(function () {
     // ✅ PayMongo sandbox payment routes (tenant-facing)
     Route::post('/reservation/{id}/pay',             [PaymentController::class, 'createIntent']);
     Route::post('/reservation/{id}/confirm-payment', [PaymentController::class, 'confirmPayment']);
+
+    // ✅ Per-listing analytics — admin (any listing) or the owning landlord (their own), enforced in the controller
+    Route::get('/listings/{id}/analytics', [AnalyticsController::class, 'listingAnalytics']);
 });
 
-Route::middleware(['auth:api', 'verified'])->group(function () {
+Route::middleware(['auth:api', 'verified', 'active'])->group(function () {
     Route::post('/listings', [ListingController::class, 'store']);
     Route::get('/my-listings', [ListingController::class, 'myListings']);
     Route::get('/landlord/analytics', [AnalyticsController::class, 'landlordOverview']);
@@ -115,13 +127,27 @@ Route::middleware(['auth:api', 'verified'])->group(function () {
     Route::put('/reservation/{id}/respond', [ReservationController::class, 'respond']);
 });
 
-Route::middleware(['auth:api', 'admin'])->group(function () {
+Route::middleware(['auth:api', 'admin', 'active'])->group(function () {
     Route::get('/admin/verify/pending', [VerificationController::class, 'pending']);
     Route::get('/admin/verify/{id}', [VerificationController::class, 'show']);
     Route::post('/admin/verify/{id}/approve', [VerificationController::class, 'approve']);
     Route::post('/admin/verify/{id}/reject', [VerificationController::class, 'reject']);
     Route::get('/admin/verify/faces/verified', [VerificationController::class, 'listVerifiedFaces']);
     Route::get('/admin/analytics', [AnalyticsController::class, 'adminOverview']);
+
+    // ✅ Account deactivation review (admin)
+    Route::get('/admin/deactivation-requests',               [DeactivationRequestController::class, 'pending']);
+    Route::post('/admin/deactivation-requests/{id}/approve', [DeactivationRequestController::class, 'approve']);
+    Route::post('/admin/deactivation-requests/{id}/reject',  [DeactivationRequestController::class, 'reject']);
+    Route::get('/admin/users',                                [DeactivationRequestController::class, 'allUsers']);
+    Route::get('/admin/users/deactivated',                    [DeactivationRequestController::class, 'deactivatedUsers']);
+    Route::post('/admin/users/{userId}/deactivate',           [DeactivationRequestController::class, 'adminDeactivate']);
+    Route::post('/admin/users/{userId}/reactivate',           [DeactivationRequestController::class, 'reactivate']);
+
+    // ✅ Per-landlord analytics (admin)
+    Route::get('/admin/landlords',                    [AnalyticsController::class, 'landlordsList']);
+    Route::get('/admin/landlords/{id}/analytics',      [AnalyticsController::class, 'landlordOverviewForAdmin']);
+    Route::get('/admin/listings-summary',               [AnalyticsController::class, 'allListingsSummary']);
 
     // ✅ Amenity requests (admin)
     Route::get('/admin/amenity-requests',               [AmenityController::class, 'allRequests']);
