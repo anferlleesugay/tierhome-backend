@@ -14,19 +14,19 @@ class ChatbotController extends Controller
      * Used only if the Gemini API call fails or times out.
      */
     protected $fallbackFaqs = [
-        'register'       => "To register, click 'Sign Up' and choose whether you're a Tenant or Landlord. You'll then need to verify your identity with a government ID and a selfie before you get full access.",
-        'sign up'        => "To register, click 'Sign Up' and choose whether you're a Tenant or Landlord. You'll then need to verify your identity with a government ID and a selfie before you get full access.",
+        'register'       => "To register, click 'Sign Up' and choose whether you're a Tenant or Property Owner. You'll then need to verify your identity with a government ID and a selfie before you get full access.",
+        'sign up'        => "To register, click 'Sign Up' and choose whether you're a Tenant or Property Owner. You'll then need to verify your identity with a government ID and a selfie before you get full access.",
         'verify'         => "Identity verification requires a valid Philippine government-issued ID and a real-time selfie. Our system checks that they match before granting full access to the platform.",
         'verification'   => "Identity verification requires a valid Philippine government-issued ID and a real-time selfie. Our system checks that they match before granting full access to the platform.",
         'ranking'        => "The affordability ranking evaluates your income, expenses, and savings to categorize listings into Highly Affordable, Moderately Affordable, and Financially Risky tiers.",
         'afford'         => "The affordability ranking evaluates your income, expenses, and savings to categorize listings into Highly Affordable, Moderately Affordable, and Financially Risky tiers.",
-        'reserve'        => "To reserve a property, open a listing and click 'Reserve'. You'll confirm you've spoken with the landlord, then submit your move-in date and details for the landlord to review.",
-        'reservation'    => "To reserve a property, open a listing and click 'Reserve'. You'll confirm you've spoken with the landlord, then submit your move-in date and details for the landlord to review.",
+        'reserve'        => "To reserve a property, open a listing and click 'Reserve'. You'll confirm you've spoken with the Property Owner, then submit your move-in date and details for the Property Owner to review.",
+        'reservation'    => "To reserve a property, open a listing and click 'Reserve'. You'll confirm you've spoken with the Property Owner, then submit your move-in date and details for the Property Owner to review.",
         'cancel'         => "You can cancel a pending or approved reservation anytime from 'My Reservations'. You'll be asked for an optional reason before it's cancelled.",
         'password'       => "Click 'Forgot Password' on the login page and check your email for a reset link.",
-        'listing'        => "Landlords can add listings from their dashboard, including photos, pricing, amenities, and terms & conditions. Listings are reviewed by an admin before going live.",
-        'terms'          => "Each listing may have its own Terms & Conditions set by the landlord, such as deposit requirements or house rules. You'll see these when viewing a listing and must agree to them before reserving.",
-        'amenit'         => "Amenities are shown on each listing page. Landlords can also request new amenity types if the one they need isn't listed.",
+        'listing'        => "Property Owners can add listings from their Listings page, including photos, pricing, amenities, and house rules & policies. Listings are reviewed by an admin before going live.",
+        'terms'          => "Each listing may have its own House Rules & Policies set by the Property Owner, such as deposit requirements or house rules. You'll see these when viewing a listing and must agree to them before reserving.",
+        'amenit'         => "Amenities are shown on each listing page. Property Owners can also request new amenity types if the one they need isn't listed.",
     ];
 
     public function message(Request $request)
@@ -75,9 +75,9 @@ class ChatbotController extends Controller
         $systemPrompt = "You are the TierHome support chatbot. TierHome is a web and mobile housing "
             . "decision support platform for Angeles City, Philippines. It helps tenants find rental "
             . "properties ranked by affordability (based on income, expenses, and savings), requires "
-            . "identity verification (government ID + selfie) for all users, and lets landlords list "
-            . "properties with map-based location, amenities, and terms & conditions. Tenants can "
-            . "reserve listings, message landlords, and save favorites. Keep answers short (2-4 "
+            . "identity verification (government ID + selfie) for all users, and lets Property Owners list "
+            . "properties with map-based location, amenities, and house rules & policies. Tenants can "
+            . "reserve listings, message Property Owners, and save favorites. Keep answers short (2-4 "
             . "sentences), friendly, and specific to TierHome. If asked something unrelated to "
             . "TierHome or housing in Angeles City, politely say you can only help with TierHome "
             . "platform questions and suggest contacting the system administrator for anything else.";
