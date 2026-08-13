@@ -400,63 +400,6 @@ class AnalyticsController extends Controller
     }
 
     /**
-     * ADMIN: every listing platform-wide (regardless of owner), with quick stats each.
-     * Closes the "admin should see a summary of reports for all apartments" gap —
-     * complements listingAnalytics() (one listing, deep dive) and landlordOverviewForAdmin()
-     * (one owner's listings) with an owner-agnostic, all-listings-at-a-glance view.
-     */
-    public function allListingsSummary()
-    {
-        try {
-            $listings = PropertyListing::with(['landlord:id,first_name,last_name,email', 'images'])
-                ->withCount(['reservations as total_reservations'])
-                ->withCount(['reservations as approved_reservations' => function ($q) {
-                    $q->where('status', 'approved');
-                }])
-                ->withCount(['reservations as pending_reservations' => function ($q) {
-                    $q->where('status', 'pending');
-                }])
-                ->get(['id', 'title', 'landlord_id', 'price', 'status', 'barangay', 'is_verified', 'reservation_fee']);
-
-            // Single grouped query for paid-reservation counts and saved counts across ALL
-            // listings at once, instead of querying per listing (N+1).
-            $paidCounts = Reservation::where('payment_status', 'paid')
-                ->selectRaw('listing_id, COUNT(*) as paid_count')
-                ->groupBy('listing_id')
-                ->pluck('paid_count', 'listing_id');
-
-            $savedCounts = \App\Models\SavedListing::selectRaw('listing_id, COUNT(*) as cnt')
-                ->groupBy('listing_id')
-                ->pluck('cnt', 'listing_id');
-
-            $listings->each(function ($listing) use ($paidCounts, $savedCounts) {
-                $paid = $paidCounts[$listing->id] ?? 0;
-                $listing->total_revenue = (float) ($paid * ($listing->reservation_fee ?? 0));
-                $listing->saved_count   = $savedCounts[$listing->id] ?? 0;
-            });
-
-            $summary = [
-                'total_listings'      => $listings->count(),
-                'verified_listings'   => $listings->where('is_verified', true)->count(),
-                'total_reservations'  => (int) $listings->sum('total_reservations'),
-                'total_revenue'       => (float) $listings->sum('total_revenue'),
-            ];
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'listings' => $listings,
-                    'summary'  => $summary,
-                ],
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('allListingsSummary error: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
      * ADMIN: list all landlords with basic stats, for the "click into a landlord" list view
      */
     public function landlordsList()
@@ -586,7 +529,7 @@ class AnalyticsController extends Controller
                 . "suitable for a dashboard. Focus on whether tenant interest is growing, and whether that interest "
                 . "is converting into actual reservations. Do not use technical jargon. Do not repeat the raw numbers verbatim.";
 
-            $res = Http::timeout(8)->post(
+            $res = Http::timeout(15)->post(
                 "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}",
                 [
                     'contents' => [

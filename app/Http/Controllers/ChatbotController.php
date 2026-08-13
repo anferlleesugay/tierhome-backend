@@ -83,7 +83,7 @@ class ChatbotController extends Controller
             . "platform questions and suggest contacting the system administrator for anything else.";
 
         try {
-            $res = Http::timeout(8)->post(
+            $res = Http::timeout(15)->post(
                 "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}",
                 [
                     'system_instruction' => [
