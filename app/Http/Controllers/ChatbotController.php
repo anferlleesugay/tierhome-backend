@@ -14,10 +14,10 @@ class ChatbotController extends Controller
      * Used only if the Gemini API call fails or times out.
      */
     protected $fallbackFaqs = [
-        'register'       => "To register, click 'Sign Up' and choose whether you're a Tenant or Property Owner. You'll then need to verify your identity with a government ID and a selfie before you get full access.",
-        'sign up'        => "To register, click 'Sign Up' and choose whether you're a Tenant or Property Owner. You'll then need to verify your identity with a government ID and a selfie before you get full access.",
-        'verify'         => "Identity verification requires a valid Philippine government-issued ID and a real-time selfie. Our system checks that they match before granting full access to the platform.",
-        'verification'   => "Identity verification requires a valid Philippine government-issued ID and a real-time selfie. Our system checks that they match before granting full access to the platform.",
+        'register'       => "To register, click 'Sign Up' and choose whether you're a Tenant or Property Owner. You'll then need to verify your identity with any valid ID and a selfie before you get full access.",
+        'sign up'        => "To register, click 'Sign Up' and choose whether you're a Tenant or Property Owner. You'll then need to verify your identity with any valid ID and a selfie before you get full access.",
+        'verify'         => "Identity verification requires any valid ID and a real-time selfie. Our system checks that they match before granting full access to the platform.",
+        'verification'   => "Identity verification requires any valid ID and a real-time selfie. Our system checks that they match before granting full access to the platform.",
         'ranking'        => "The affordability ranking evaluates your income, expenses, and savings to categorize listings into Highly Affordable, Moderately Affordable, and Financially Risky tiers.",
         'afford'         => "The affordability ranking evaluates your income, expenses, and savings to categorize listings into Highly Affordable, Moderately Affordable, and Financially Risky tiers.",
         'reserve'        => "To reserve a property, open a listing and click 'Reserve'. You'll confirm you've spoken with the Property Owner, then submit your move-in date and details for the Property Owner to review.",
@@ -75,7 +75,7 @@ class ChatbotController extends Controller
         $systemPrompt = "You are the TierHome support chatbot. TierHome is a web and mobile housing "
             . "decision support platform for Angeles City, Philippines. It helps tenants find rental "
             . "properties ranked by affordability (based on income, expenses, and savings), requires "
-            . "identity verification (government ID + selfie) for all users, and lets Property Owners list "
+            . "identity verification (valid ID + selfie) for all users, and lets Property Owners list "
             . "properties with map-based location, amenities, and house rules & policies. Tenants can "
             . "reserve listings, message Property Owners, and save favorites. Keep answers short (2-4 "
             . "sentences), friendly, and specific to TierHome. If asked something unrelated to "
