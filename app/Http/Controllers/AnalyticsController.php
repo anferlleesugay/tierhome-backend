@@ -383,6 +383,125 @@ class AnalyticsController extends Controller
         }
     }
 
+    /**
+     * ADMIN: Dashboard widgets — mirrors landlordDashboardWidgets but platform-wide.
+     * Spec sourced directly from Client 2 interview Q16 (healthy-platform numbers:
+     * Active Users | Active Listings | Reservations | Platform Revenue, with MoM comparison)
+     * and Q6/Q9 (task tracker) + Q8 (live activity feed).
+     */
+    public function adminDashboardWidgets()
+    {
+        try {
+            $startOfMonth     = Carbon::now()->startOfMonth();
+            $startOfLastMonth = Carbon::now()->subMonth()->startOfMonth();
+            $endOfLastMonth   = Carbon::now()->subMonth()->endOfMonth();
+
+            // ── KEY STATS ── Active Users / Active Listings / Reservations / Platform Revenue, w/ MoM
+            $activeUsersCount = User::where('is_active', true)->count();
+
+            $activeListingsCount = PropertyListing::where('status', 'available')->count();
+
+            $reservationsThisMonth = Reservation::where('created_at', '>=', $startOfMonth)->count();
+            $reservationsLastMonth = Reservation::whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])->count();
+            $reservationsChangePct = $reservationsLastMonth > 0
+                ? round((($reservationsThisMonth - $reservationsLastMonth) / $reservationsLastMonth) * 100)
+                : null;
+
+            $revenueThisMonth = (float) Reservation::where('payment_status', 'paid')
+                ->where('paid_at', '>=', $startOfMonth)
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->sum('property_listings.reservation_fee');
+
+            $revenueLastMonth = (float) Reservation::where('payment_status', 'paid')
+                ->whereBetween('paid_at', [$startOfLastMonth, $endOfLastMonth])
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->sum('property_listings.reservation_fee');
+
+            $revenueChangePct = $revenueLastMonth > 0
+                ? round((($revenueThisMonth - $revenueLastMonth) / $revenueLastMonth) * 100)
+                : null;
+
+            $stats = [
+                'active_users'             => $activeUsersCount,
+                'active_listings'          => $activeListingsCount,
+                'reservations_this_month'  => $reservationsThisMonth,
+                'reservations_change_pct'  => $reservationsChangePct,
+                'revenue_this_month'       => $revenueThisMonth,
+                'revenue_change_pct'       => $revenueChangePct,
+            ];
+
+            // ── TASK TRACKER ── everything an admin needs to act on right now
+            $tasks = [
+                'pending_verifications'     => IdentityVerification::where('status', 'pending')->count(),
+                'pending_listing_approvals' => PropertyListing::where('is_verified', false)
+                    ->where('status', '!=', 'rejected')->count(),
+                'pending_amenity_requests'  => \App\Models\AmenityRequest::where('status', 'pending')->count(),
+                'pending_deactivation_requests' => \App\Models\DeactivationRequest::where('status', 'pending')->count(),
+            ];
+
+            // ── ACTIVITY FEED ── last 10 platform-wide events (new users, listings, reservations, admin actions)
+            $recentUsers = User::orderBy('created_at', 'desc')->limit(10)
+                ->get(['id', 'first_name', 'last_name', 'role', 'created_at'])
+                ->map(fn($u) => [
+                    'type'      => 'user',
+                    'message'   => "{$u->first_name} {$u->last_name} registered as " . ucfirst($u->role === 'landlord' ? 'Property Owner' : $u->role),
+                    'status'    => null,
+                    'timestamp' => $u->created_at,
+                ]);
+
+            $recentListings = PropertyListing::orderBy('created_at', 'desc')->limit(10)
+                ->with('landlord:id,first_name,last_name')
+                ->get(['id', 'title', 'landlord_id', 'created_at'])
+                ->filter(fn($l) => $l->landlord)
+                ->map(fn($l) => [
+                    'type'      => 'listing',
+                    'message'   => "{$l->landlord->first_name} {$l->landlord->last_name} submitted \"{$l->title}\"",
+                    'status'    => null,
+                    'timestamp' => $l->created_at,
+                ]);
+
+            $recentReservations = Reservation::orderBy('created_at', 'desc')->limit(10)
+                ->with(['tenant:id,first_name,last_name', 'listing:id,title'])
+                ->get()
+                ->filter(fn($r) => $r->tenant && $r->listing)
+                ->map(fn($r) => [
+                    'type'      => 'reservation',
+                    'message'   => "{$r->tenant->first_name} {$r->tenant->last_name} reserved \"{$r->listing->title}\"",
+                    'status'    => $r->status,
+                    'timestamp' => $r->created_at,
+                ]);
+
+            $recentAdminActions = \App\Models\AuditLog::orderBy('created_at', 'desc')->limit(10)
+                ->get(['id', 'description', 'created_at'])
+                ->map(fn($a) => [
+                    'type'      => 'admin_action',
+                    'message'   => $a->description,
+                    'status'    => null,
+                    'timestamp' => $a->created_at,
+                ]);
+
+            $activityFeed = $recentUsers->concat($recentListings)
+                ->concat($recentReservations)
+                ->concat($recentAdminActions)
+                ->sortByDesc('timestamp')
+                ->take(10)
+                ->values();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'stats'         => $stats,
+                    'tasks'         => $tasks,
+                    'activity_feed' => $activityFeed,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('adminDashboardWidgets error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
     public function landlordOverviewForAdmin($landlordId)
     {
         try {

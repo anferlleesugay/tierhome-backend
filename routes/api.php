@@ -182,6 +182,7 @@ Route::middleware(['auth:api', 'admin', 'active'])->group(function () {
     Route::post('/admin/listings/{id}/approve', [ListingController::class, 'approve']);
     Route::post('/admin/listings/{id}/reject', [ListingController::class, 'reject']);
     Route::get('/admin/listings-summary', [AnalyticsController::class, 'allListingsSummary']);
+    Route::get('/admin/dashboard-widgets', [AnalyticsController::class, 'adminDashboardWidgets']);
     Route::get('/admin/revenue-by-owner', [AnalyticsController::class, 'revenueByOwner']);
     Route::get('/admin/audit-logs', [AuditLogController::class, 'index']);
 });
