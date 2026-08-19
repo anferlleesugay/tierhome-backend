@@ -53,7 +53,7 @@ class MaintenanceRequestController extends Controller
                 'maintenance_request_submitted',
                 'New Maintenance Request',
                 "A tenant reported an issue with \"{$listing->title}\": {$validated['title']}",
-                null
+                '/landlord/maintenance'
             );
         }
 
@@ -118,7 +118,7 @@ class MaintenanceRequestController extends Controller
             'maintenance_request_updated',
             'Maintenance Request Update',
             "Your report \"{$maintenanceRequest->title}\" is now marked as " . str_replace('_', ' ', $validated['status']) . ".",
-            null
+            '/tenant/reservations'
         );
 
         return response()->json(['success' => true, 'data' => $maintenanceRequest]);
