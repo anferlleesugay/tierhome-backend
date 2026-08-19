@@ -229,22 +229,56 @@ class AnalyticsController extends Controller
             $landlordId = auth()->id();
             $listingIds = PropertyListing::where('landlord_id', $landlordId)->pluck('id');
 
-            $startOfMonth  = Carbon::now()->startOfMonth();
-            $checkInWindow = Carbon::now()->addDays(14)->toDateString();
-            $today         = Carbon::now()->toDateString();
+            $startOfMonth     = Carbon::now()->startOfMonth();
+            $startOfLastMonth = Carbon::now()->subMonth()->startOfMonth();
+            $endOfLastMonth   = Carbon::now()->subMonth()->endOfMonth();
+            $checkInWindow    = Carbon::now()->addDays(14)->toDateString();
+            $today            = Carbon::now()->toDateString();
 
-            // ── KEY STATS ──
+            // ── KEY STATS ── (Active Listings / Occupancy Rate / Reservation Volume / Revenue —
+            // matches Client 2's exact "healthy at a glance" spec, including month-over-month comparison)
+            $totalListingsCount = PropertyListing::where('landlord_id', $landlordId)->count();
+            $occupiedListingsCount = PropertyListing::where('landlord_id', $landlordId)
+                ->where('status', 'unavailable')->count();
+            $occupancyRatePct = $totalListingsCount > 0
+                ? round(($occupiedListingsCount / $totalListingsCount) * 100)
+                : null;
+
+            $revenueThisMonth = (float) Reservation::whereIn('reservations.listing_id', $listingIds)
+                ->where('payment_status', 'paid')
+                ->where('reservations.paid_at', '>=', $startOfMonth)
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->sum('property_listings.reservation_fee');
+
+            $revenueLastMonth = (float) Reservation::whereIn('reservations.listing_id', $listingIds)
+                ->where('payment_status', 'paid')
+                ->whereBetween('reservations.paid_at', [$startOfLastMonth, $endOfLastMonth])
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->sum('property_listings.reservation_fee');
+
+            $revenueChangePct = $revenueLastMonth > 0
+                ? round((($revenueThisMonth - $revenueLastMonth) / $revenueLastMonth) * 100)
+                : null;
+
+            $reservationsThisMonth = Reservation::whereIn('listing_id', $listingIds)
+                ->where('created_at', '>=', $startOfMonth)->count();
+            $reservationsLastMonth = Reservation::whereIn('listing_id', $listingIds)
+                ->whereBetween('created_at', [$startOfLastMonth, $endOfLastMonth])->count();
+            $reservationsChangePct = $reservationsLastMonth > 0
+                ? round((($reservationsThisMonth - $reservationsLastMonth) / $reservationsLastMonth) * 100)
+                : null;
+
             $stats = [
-                'active_listings' => PropertyListing::where('landlord_id', $landlordId)
+                'active_listings'       => PropertyListing::where('landlord_id', $landlordId)
                     ->where('status', 'available')->count(),
-                'pending_reservations' => Reservation::whereIn('listing_id', $listingIds)
+                'occupancy_rate'        => $occupancyRatePct,
+                'pending_reservations'  => Reservation::whereIn('listing_id', $listingIds)
                     ->where('status', 'pending')->count(),
-                'revenue_this_month' => (float) Reservation::whereIn('reservations.listing_id', $listingIds)
-                    ->where('payment_status', 'paid')
-                    ->where('reservations.paid_at', '>=', $startOfMonth)
-                    ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
-                    ->sum('property_listings.reservation_fee'),
-                'upcoming_checkins' => Reservation::whereIn('listing_id', $listingIds)
+                'reservations_this_month'   => $reservationsThisMonth,
+                'reservations_change_pct'   => $reservationsChangePct,
+                'revenue_this_month'    => $revenueThisMonth,
+                'revenue_change_pct'    => $revenueChangePct,
+                'upcoming_checkins'     => Reservation::whereIn('listing_id', $listingIds)
                     ->where('status', 'approved')
                     ->whereBetween('move_in_date', [$today, $checkInWindow])
                     ->count(),
