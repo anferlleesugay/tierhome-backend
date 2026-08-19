@@ -821,25 +821,23 @@ class AnalyticsController extends Controller
                 ->map(fn($r) => ['month' => $r->month, 'total' => (float) $r->total]);
 
             // ── Revenue by property (top 10 earning listings platform-wide) ──
-            $revenueByProperty = PropertyListing::withCount(['reservations as paid_reservations_count' => function ($q) {
-                    $q->where('payment_status', 'paid');
-                }])
-                ->with('landlord:id,first_name,last_name')
-                ->get(['id', 'title', 'landlord_id', 'reservation_fee', 'barangay'])
-                ->map(function ($listing) {
-                    $revenue = $listing->paid_reservations_count * (float) $listing->reservation_fee;
-                    return [
-                        'id'       => $listing->id,
-                        'title'    => $listing->title,
-                        'barangay' => $listing->barangay,
-                        'owner'    => $listing->landlord ? "{$listing->landlord->first_name} {$listing->landlord->last_name}" : "Unknown",
-                        'revenue'  => $revenue,
-                    ];
-                })
-                ->filter(fn($l) => $l['revenue'] > 0)
-                ->sortByDesc('revenue')
-                ->take(10)
-                ->values();
+            // Rewritten as a plain join+groupBy (same proven pattern as revenueByMonth above)
+            // instead of withCount, to eliminate any risk of a silent query failure here.
+            $revenueByProperty = Reservation::where('payment_status', 'paid')
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->join('users as owners', 'property_listings.landlord_id', '=', 'owners.id')
+                ->selectRaw('property_listings.id as listing_id, property_listings.title, property_listings.barangay, owners.first_name, owners.last_name, SUM(property_listings.reservation_fee) as revenue')
+                ->groupBy('property_listings.id', 'property_listings.title', 'property_listings.barangay', 'owners.first_name', 'owners.last_name')
+                ->orderByDesc('revenue')
+                ->limit(10)
+                ->get()
+                ->map(fn($r) => [
+                    'id'       => $r->listing_id,
+                    'title'    => $r->title,
+                    'barangay' => $r->barangay,
+                    'owner'    => trim("{$r->first_name} {$r->last_name}"),
+                    'revenue'  => (float) $r->revenue,
+                ]);
 
             // ── Transaction volume ──
             $totalPaidTransactions = Reservation::where('payment_status', 'paid')->count();
