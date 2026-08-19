@@ -175,7 +175,40 @@ class AnalyticsController extends Controller
                     $q->where('status', 'approved');
                 }])
                 ->with('images')
-                ->get(['id', 'title', 'price', 'status', 'barangay', 'is_verified']);
+                ->get(['id', 'title', 'price', 'status', 'barangay', 'is_verified', 'reservation_fee']);
+
+            // ✅ Per-listing revenue — previously only a landlord-wide total existed, with no way
+            // to see WHICH listing actually earns more. Client 2 (Q13) specifically wanted a
+            // "property performance comparison."
+            $paidCountsByListing = Reservation::whereIn('listing_id', $listingIds)
+                ->where('payment_status', 'paid')
+                ->selectRaw('listing_id, COUNT(*) as paid_count')
+                ->groupBy('listing_id')
+                ->pluck('paid_count', 'listing_id');
+
+            $listingPerformance->each(function ($l) use ($paidCountsByListing) {
+                $paid = $paidCountsByListing[$l->id] ?? 0;
+                $l->revenue = (float) ($paid * ($l->reservation_fee ?? 0));
+            });
+
+            // ✅ Upcoming Vacancies — Client 2 (Q12) explicitly named this alongside occupancy
+            // rate as something they currently have to guess at. Approved reservations whose
+            // move-out date falls in the next 30 days mean that unit is about to free up.
+            $vacancyWindow = Carbon::now()->addDays(30)->toDateString();
+            $today = Carbon::now()->toDateString();
+            $upcomingVacancies = Reservation::whereIn('listing_id', $listingIds)
+                ->where('status', 'approved')
+                ->whereNotNull('move_out_date')
+                ->whereBetween('move_out_date', [$today, $vacancyWindow])
+                ->with('listing:id,title,barangay')
+                ->orderBy('move_out_date')
+                ->get()
+                ->filter(fn($r) => $r->listing)
+                ->map(fn($r) => [
+                    'listing_title' => $r->listing->title,
+                    'barangay'      => $r->listing->barangay,
+                    'move_out_date' => $r->move_out_date?->format('Y-m-d'),
+                ]);
 
             $summary = [
                 'total_listings'       => $listingIds->count(),
@@ -204,6 +237,7 @@ class AnalyticsController extends Controller
                     'searches_by_month'      => $searchMonthlyData,
                     'revenue_by_month'       => $revenueMonthlyData,
                     'listing_performance'    => $listingPerformance,
+                    'upcoming_vacancies'     => $upcomingVacancies,
                     'forecast' => [
                         'demand_next_3_months'       => $demandForecast,
                         'reservations_next_3_months' => $reservationForecast,
