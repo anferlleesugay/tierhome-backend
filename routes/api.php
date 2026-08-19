@@ -123,6 +123,8 @@ Route::middleware(['auth:api', 'verified', 'active'])->group(function () {
     Route::get('/landlord/reports/revenue', [ReportController::class, 'revenueSummary']);
     Route::get('/landlord/reports/occupancy', [ReportController::class, 'occupancyReport']);
     Route::get('/landlord/reports/expenses', [ReportController::class, 'expenseReport']);
+    Route::get('/landlord/report-preference', [ReportController::class, 'getPreference']);
+    Route::put('/landlord/report-preference', [ReportController::class, 'updatePreference']);
 
     Route::post('/maintenance-requests', [MaintenanceRequestController::class, 'submit']);
     Route::get('/maintenance-requests/mine', [MaintenanceRequestController::class, 'myRequests']);

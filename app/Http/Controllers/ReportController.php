@@ -10,6 +10,29 @@ use Carbon\Carbon;
 
 class ReportController extends Controller
 {
+    public function getPreference()
+    {
+        $user = auth()->user();
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'report_frequency'     => $user->report_frequency ?? 'off',
+                'last_report_sent_at'  => $user->last_report_sent_at,
+            ],
+        ]);
+    }
+
+    public function updatePreference(Request $request)
+    {
+        $validated = $request->validate([
+            'report_frequency' => 'required|in:off,weekly,monthly',
+        ]);
+
+        auth()->user()->update($validated);
+
+        return response()->json(['success' => true, 'data' => $validated]);
+    }
+
     /**
      * Resolve the ?range= query param into a [start, end] date pair.
      * Supports: this_month, this_year, all_time (default).
