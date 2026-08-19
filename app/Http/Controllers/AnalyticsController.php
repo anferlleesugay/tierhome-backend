@@ -800,6 +800,95 @@ class AnalyticsController extends Controller
     }
 
     /**
+     * ADMIN: Full platform revenue report — directly sourced from Client 2 interview Q18,
+     * which asked for revenue by month, by property, transaction volume, refunds, and
+     * outstanding payments, on top of the by-owner breakdown already in revenueByOwner().
+     */
+    public function platformRevenueReport()
+    {
+        try {
+            $sixMonthsAgo = Carbon::now()->subMonths(5)->startOfMonth();
+            $startOfMonth = Carbon::now()->startOfMonth();
+
+            // ── Revenue by month (last 6 months) ──
+            $revenueByMonth = Reservation::where('payment_status', 'paid')
+                ->where('paid_at', '>=', $sixMonthsAgo)
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->selectRaw("DATE_FORMAT(reservations.paid_at, '%Y-%m') as month, SUM(property_listings.reservation_fee) as total")
+                ->groupBy('month')
+                ->orderBy('month')
+                ->get()
+                ->map(fn($r) => ['month' => $r->month, 'total' => (float) $r->total]);
+
+            // ── Revenue by property (top 10 earning listings platform-wide) ──
+            $revenueByProperty = PropertyListing::withCount(['reservations as paid_reservations_count' => function ($q) {
+                    $q->where('payment_status', 'paid');
+                }])
+                ->with('landlord:id,first_name,last_name')
+                ->get(['id', 'title', 'landlord_id', 'reservation_fee', 'barangay'])
+                ->map(function ($listing) {
+                    $revenue = $listing->paid_reservations_count * (float) $listing->reservation_fee;
+                    return [
+                        'id'       => $listing->id,
+                        'title'    => $listing->title,
+                        'barangay' => $listing->barangay,
+                        'owner'    => $listing->landlord ? "{$listing->landlord->first_name} {$listing->landlord->last_name}" : "Unknown",
+                        'revenue'  => $revenue,
+                    ];
+                })
+                ->filter(fn($l) => $l['revenue'] > 0)
+                ->sortByDesc('revenue')
+                ->take(10)
+                ->values();
+
+            // ── Transaction volume ──
+            $totalPaidTransactions = Reservation::where('payment_status', 'paid')->count();
+            $transactionsThisMonth = Reservation::where('payment_status', 'paid')
+                ->where('paid_at', '>=', $startOfMonth)->count();
+
+            // ── Refunds ──
+            $refundedReservations = Reservation::where('payment_status', 'refunded')
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->get(['reservations.id', 'property_listings.reservation_fee']);
+            $refundsCount  = $refundedReservations->count();
+            $refundsAmount = (float) $refundedReservations->sum('reservation_fee');
+
+            $refundFailedCount = Reservation::where('payment_status', 'refund_failed')->count();
+
+            // ── Outstanding payments — approved reservations still waiting on payment ──
+            $outstanding = Reservation::where('payment_status', 'pending')
+                ->where('status', 'approved')
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->get(['reservations.id', 'property_listings.reservation_fee']);
+            $outstandingCount  = $outstanding->count();
+            $outstandingAmount = (float) $outstanding->sum('reservation_fee');
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'revenue_by_month'      => $revenueByMonth,
+                    'revenue_by_property'   => $revenueByProperty,
+                    'total_transactions'    => $totalPaidTransactions,
+                    'transactions_this_month' => $transactionsThisMonth,
+                    'refunds' => [
+                        'count'         => $refundsCount,
+                        'amount'        => $refundsAmount,
+                        'failed_count'  => $refundFailedCount,
+                    ],
+                    'outstanding' => [
+                        'count'  => $outstandingCount,
+                        'amount' => $outstandingAmount,
+                    ],
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('platformRevenueReport error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * ADMIN: list all landlords with basic stats, for the "click into a landlord" list view
      */
     public function landlordsList()

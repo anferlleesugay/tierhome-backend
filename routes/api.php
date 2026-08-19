@@ -184,5 +184,6 @@ Route::middleware(['auth:api', 'admin', 'active'])->group(function () {
     Route::get('/admin/listings-summary', [AnalyticsController::class, 'allListingsSummary']);
     Route::get('/admin/dashboard-widgets', [AnalyticsController::class, 'adminDashboardWidgets']);
     Route::get('/admin/revenue-by-owner', [AnalyticsController::class, 'revenueByOwner']);
+    Route::get('/admin/platform-revenue-report', [AnalyticsController::class, 'platformRevenueReport']);
     Route::get('/admin/audit-logs', [AuditLogController::class, 'index']);
 });
