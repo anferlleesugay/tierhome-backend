@@ -15,6 +15,7 @@ use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\ReportController;
 use App\Http\Controllers\DeviceTokenController;
 use App\Http\Controllers\DeactivationRequestController;
 
@@ -116,6 +117,9 @@ Route::middleware(['auth:api', 'verified', 'active'])->group(function () {
     Route::get('/my-listings', [ListingController::class, 'myListings']);
     Route::get('/landlord/analytics', [AnalyticsController::class, 'landlordOverview']);
     Route::get('/landlord/dashboard-widgets', [AnalyticsController::class, 'landlordDashboardWidgets']);
+    Route::get('/landlord/reports/reservations', [ReportController::class, 'reservationHistory']);
+    Route::get('/landlord/reports/revenue', [ReportController::class, 'revenueSummary']);
+    Route::get('/landlord/reports/occupancy', [ReportController::class, 'occupancyReport']);
     Route::put('/listings/{id}', [ListingController::class, 'update']);
     Route::post('/listings/{id}', [ListingController::class, 'update']); // for FormData _method spoofing
     Route::delete('/listings/{id}', [ListingController::class, 'destroy']);
