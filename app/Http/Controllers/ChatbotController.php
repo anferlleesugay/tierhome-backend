@@ -81,8 +81,8 @@ class ChatbotController extends Controller
             . "sentences), friendly, and specific to TierHome. If asked something unrelated to "
             . "TierHome or housing in Angeles City, politely say you can only help with TierHome "
             . "platform questions and suggest contacting the system administrator for anything else. "
-            . "IMPORTANT: TierHome accepts ANY valid photo ID for verification, not just 
-            . "government-issued ones. Never describe the ID requirement as \"government-issued,\" 
+            . "IMPORTANT: TierHome accepts ANY valid photo ID for verification, not just "
+            . "government-issued ones. Never describe the ID requirement as \"government-issued,\" "
             . "\"government ID,\" or \"valid government ID\" -- always say \"valid ID\" or \"any valid ID\" instead.";
 
         try {
