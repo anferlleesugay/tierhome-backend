@@ -84,10 +84,19 @@ class ListingController extends Controller
                 }
             }
 
-            // Block listings whose landlord account has been deactivated
-            if (!$listing->landlord || !$listing->landlord->is_active) {
+            // Block listings whose landlord account has been deactivated.
+            // A listing with no landlord record at all is a data-integrity problem
+            // (orphaned/deleted owner), not a deactivation — still hidden from the
+            // public and other landlords, but distinguished here for clearer debugging.
+            if (!$listing->landlord) {
                 $isAdmin = $user && $user->role === 'admin';
                 if (!$isAdmin) {
+                    return response()->json(['success' => false, 'message' => 'This listing is currently unavailable.'], 403);
+                }
+            } elseif (!$listing->landlord->is_active) {
+                $isOwner = $user && $user->id === $listing->landlord_id;
+                $isAdmin = $user && $user->role === 'admin';
+                if (!$isOwner && !$isAdmin) {
                     return response()->json(['success' => false, 'message' => 'This listing is currently unavailable.'], 403);
                 }
             }
@@ -352,6 +361,14 @@ class ListingController extends Controller
 
             $listing->update(['is_verified' => true, 'status' => 'available']);
 
+            \App\Models\AuditLog::record(
+                auth()->id(),
+                'listing_approved',
+                'PropertyListing',
+                $listing->id,
+                "Approved listing \"{$listing->title}\"."
+            );
+
             \App\Models\Notification::notify(
                 $listing->landlord_id,
                 'listing_approved',
@@ -381,6 +398,14 @@ class ListingController extends Controller
             $reason  = $request->input('reason', 'Listing rejected by administrator');
 
             $listing->update(['status' => 'rejected', 'is_verified' => false]);
+
+            \App\Models\AuditLog::record(
+                auth()->id(),
+                'listing_rejected',
+                'PropertyListing',
+                $listing->id,
+                "Rejected listing \"{$listing->title}\". Reason: {$reason}"
+            );
 
             \App\Models\Notification::notify(
                 $listing->landlord_id,

@@ -18,6 +18,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\MaintenanceRequestController;
 use App\Http\Controllers\ExpenseController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\DeviceTokenController;
 use App\Http\Controllers\DeactivationRequestController;
 
@@ -180,4 +181,7 @@ Route::middleware(['auth:api', 'admin', 'active'])->group(function () {
     Route::get('/admin/listings/pending', [ListingController::class, 'pending']);
     Route::post('/admin/listings/{id}/approve', [ListingController::class, 'approve']);
     Route::post('/admin/listings/{id}/reject', [ListingController::class, 'reject']);
+    Route::get('/admin/listings-summary', [AnalyticsController::class, 'allListingsSummary']);
+    Route::get('/admin/revenue-by-owner', [AnalyticsController::class, 'revenueByOwner']);
+    Route::get('/admin/audit-logs', [AuditLogController::class, 'index']);
 });

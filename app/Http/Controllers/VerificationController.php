@@ -353,6 +353,14 @@ class VerificationController extends Controller
             $verification
         );
 
+        \App\Models\AuditLog::record(
+            auth()->id(),
+            'verification_approved',
+            'IdentityVerification',
+            $verification->id,
+            "Approved identity verification for {$verification->user->first_name} {$verification->user->last_name}."
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Verification approved successfully.',
@@ -378,6 +386,14 @@ class VerificationController extends Controller
         $verification->user->update([
             'verification_status' => 'rejected',
         ]);
+
+        \App\Models\AuditLog::record(
+            auth()->id(),
+            'verification_rejected',
+            'IdentityVerification',
+            $verification->id,
+            "Rejected identity verification for {$verification->user->first_name} {$verification->user->last_name}. Reason: {$reason}"
+        );
 
         return response()->json([
             'success' => true,

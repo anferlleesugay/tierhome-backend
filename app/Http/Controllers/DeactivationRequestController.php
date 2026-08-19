@@ -110,7 +110,15 @@ class DeactivationRequestController extends Controller
             'reviewed_at' => now(),
         ]);
 
-        $reqModel->user->update(['is_active' => false, 'reactivation_requested_at' => null]);
+        $reqModel->user->update(['is_active' => false]);
+
+        \App\Models\AuditLog::record(
+            auth()->id(),
+            'deactivation_request_approved',
+            'User',
+            $reqModel->user_id,
+            "Approved deactivation request for {$reqModel->user->first_name} {$reqModel->user->last_name} ({$reqModel->user->email})."
+        );
 
         \App\Models\Notification::notify(
             $reqModel->user_id,
@@ -141,6 +149,14 @@ class DeactivationRequestController extends Controller
             'admin_note'  => $validated['admin_note'] ?? null,
             'reviewed_at' => now(),
         ]);
+
+        \App\Models\AuditLog::record(
+            auth()->id(),
+            'deactivation_request_rejected',
+            'User',
+            $reqModel->user_id,
+            "Declined deactivation request for {$reqModel->user->first_name} {$reqModel->user->last_name} ({$reqModel->user->email})."
+        );
 
         \App\Models\Notification::notify(
             $reqModel->user_id,
@@ -187,8 +203,6 @@ class DeactivationRequestController extends Controller
             );
         }
 
-        $user->update(['reactivation_requested_at' => now()]);
-
         return response()->json([
             'success' => true,
             'message' => 'Your request has been sent to our admin team. You will be notified once reviewed.',
@@ -196,16 +210,13 @@ class DeactivationRequestController extends Controller
     }
 
     /**
-     * ADMIN: list all currently deactivated accounts (tenant or landlord).
-     * Accounts with a pending reactivation request are surfaced first.
+     * ADMIN: list all currently deactivated accounts (tenant or landlord)
      */
     public function deactivatedUsers()
     {
         $users = User::where('is_active', false)
-            ->orderByRaw('reactivation_requested_at IS NULL')
-            ->orderBy('reactivation_requested_at', 'desc')
             ->orderBy('updated_at', 'desc')
-            ->get(['id', 'first_name', 'last_name', 'email', 'role', 'profile_picture', 'updated_at', 'reactivation_requested_at']);
+            ->get(['id', 'first_name', 'last_name', 'email', 'role', 'profile_picture', 'updated_at']);
 
         return response()->json(['success' => true, 'data' => $users]);
     }
@@ -240,6 +251,14 @@ class DeactivationRequestController extends Controller
 
         $user->update(['is_active' => false, 'reactivation_requested_at' => null]);
 
+        \App\Models\AuditLog::record(
+            auth()->id(),
+            'account_deactivated_direct',
+            'User',
+            $user->id,
+            "Directly deactivated {$user->first_name} {$user->last_name} ({$user->email}) via User Management."
+        );
+
         \App\Models\Notification::notify(
             $user->id,
             'account_deactivated_by_admin',
@@ -258,6 +277,14 @@ class DeactivationRequestController extends Controller
     {
         $user = User::findOrFail($userId);
         $user->update(['is_active' => true, 'reactivation_requested_at' => null]);
+
+        \App\Models\AuditLog::record(
+            auth()->id(),
+            'account_reactivated',
+            'User',
+            $user->id,
+            "Reactivated {$user->first_name} {$user->last_name} ({$user->email})."
+        );
 
         \App\Models\Notification::notify(
             $user->id,

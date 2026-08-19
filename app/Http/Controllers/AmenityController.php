@@ -147,6 +147,14 @@ class AmenityController extends Controller
 
         $amenityRequest->update(['status' => 'approved']);
 
+        \App\Models\AuditLog::record(
+            auth()->id(),
+            'amenity_request_approved',
+            'AmenityRequest',
+            $amenityRequest->id,
+            "Approved amenity request \"{$amenityRequest->name}\"."
+        );
+
         return response()->json([
             'success' => true,
             'message' => "Amenity \"{$amenityRequest->name}\" approved and added to the global list.",
@@ -168,6 +176,14 @@ class AmenityController extends Controller
             'status'     => 'rejected',
             'admin_note' => $request->admin_note ?? null,
         ]);
+
+        \App\Models\AuditLog::record(
+            auth()->id(),
+            'amenity_request_rejected',
+            'AmenityRequest',
+            $amenityRequest->id,
+            "Rejected amenity request \"{$amenityRequest->name}\"." . ($request->admin_note ? " Note: {$request->admin_note}" : "")
+        );
 
         return response()->json([
             'success' => true,

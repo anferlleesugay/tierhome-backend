@@ -612,6 +612,75 @@ class AnalyticsController extends Controller
     }
 
     /**
+     * ADMIN: platform-wide revenue broken down BY OWNER — Client 2's exact spec:
+     * "by month, by property, by owner, plus commission/fees." Commission isn't
+     * modeled in TierHome (no platform fee exists), so this covers revenue-by-owner
+     * with month-over-month comparison, which is the buildable core of that ask.
+     */
+    public function revenueByOwner()
+    {
+        try {
+            $startOfMonth     = Carbon::now()->startOfMonth();
+            $startOfLastMonth = Carbon::now()->subMonth()->startOfMonth();
+            $endOfLastMonth   = Carbon::now()->subMonth()->endOfMonth();
+
+            $landlords = User::where('role', 'landlord')
+                ->get(['id', 'first_name', 'last_name', 'email']);
+
+            $ownerData = $landlords->map(function ($landlord) use ($startOfMonth, $startOfLastMonth, $endOfLastMonth) {
+                $listingIds = PropertyListing::where('landlord_id', $landlord->id)->pluck('id');
+
+                $totalRevenue = Reservation::whereIn('reservations.listing_id', $listingIds)
+                    ->where('payment_status', 'paid')
+                    ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                    ->sum('property_listings.reservation_fee');
+
+                $thisMonthRevenue = Reservation::whereIn('reservations.listing_id', $listingIds)
+                    ->where('payment_status', 'paid')
+                    ->where('reservations.paid_at', '>=', $startOfMonth)
+                    ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                    ->sum('property_listings.reservation_fee');
+
+                $lastMonthRevenue = Reservation::whereIn('reservations.listing_id', $listingIds)
+                    ->where('payment_status', 'paid')
+                    ->whereBetween('reservations.paid_at', [$startOfLastMonth, $endOfLastMonth])
+                    ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                    ->sum('property_listings.reservation_fee');
+
+                $changePct = $lastMonthRevenue > 0
+                    ? round((($thisMonthRevenue - $lastMonthRevenue) / $lastMonthRevenue) * 100)
+                    : null;
+
+                return [
+                    'id'                 => $landlord->id,
+                    'name'               => "{$landlord->first_name} {$landlord->last_name}",
+                    'email'              => $landlord->email,
+                    'total_listings'     => $listingIds->count(),
+                    'total_revenue'      => (float) $totalRevenue,
+                    'revenue_this_month' => (float) $thisMonthRevenue,
+                    'revenue_change_pct' => $changePct,
+                ];
+            })
+            ->filter(fn($o) => $o['total_revenue'] > 0)
+            ->sortByDesc('total_revenue')
+            ->values();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'owners'           => $ownerData,
+                    'platform_total'   => (float) $ownerData->sum('total_revenue'),
+                    'platform_this_month' => (float) $ownerData->sum('revenue_this_month'),
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('revenueByOwner error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * ADMIN: list all landlords with basic stats, for the "click into a landlord" list view
      */
     public function landlordsList()
