@@ -16,6 +16,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\MaintenanceRequestController;
 use App\Http\Controllers\DeviceTokenController;
 use App\Http\Controllers\DeactivationRequestController;
 
@@ -120,6 +121,11 @@ Route::middleware(['auth:api', 'verified', 'active'])->group(function () {
     Route::get('/landlord/reports/reservations', [ReportController::class, 'reservationHistory']);
     Route::get('/landlord/reports/revenue', [ReportController::class, 'revenueSummary']);
     Route::get('/landlord/reports/occupancy', [ReportController::class, 'occupancyReport']);
+
+    Route::post('/maintenance-requests', [MaintenanceRequestController::class, 'submit']);
+    Route::get('/maintenance-requests/mine', [MaintenanceRequestController::class, 'myRequests']);
+    Route::get('/landlord/maintenance-requests', [MaintenanceRequestController::class, 'landlordRequests']);
+    Route::put('/maintenance-requests/{id}/status', [MaintenanceRequestController::class, 'updateStatus']);
     Route::put('/listings/{id}', [ListingController::class, 'update']);
     Route::post('/listings/{id}', [ListingController::class, 'update']); // for FormData _method spoofing
     Route::delete('/listings/{id}', [ListingController::class, 'destroy']);

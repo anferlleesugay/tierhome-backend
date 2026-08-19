@@ -329,6 +329,9 @@ class AnalyticsController extends Controller
                     ->where('sender_id', '!=', $landlordId)
                     ->whereNull('read_at')
                     ->count(),
+                'pending_maintenance' => \App\Models\MaintenanceRequest::whereIn('listing_id', $listingIds)
+                    ->where('status', 'pending')
+                    ->count(),
             ];
 
             // ── ACTIVITY FEED ── (last 10 combined events — reservations + messages)
