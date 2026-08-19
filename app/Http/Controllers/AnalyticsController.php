@@ -7,6 +7,7 @@ use App\Models\PropertyListing;
 use App\Models\User;
 use App\Models\IdentityVerification;
 use App\Models\SearchLog;
+use App\Models\Message;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -217,6 +218,100 @@ class AnalyticsController extends Controller
         }
     }
 
+    /**
+     * LANDLORD: Dashboard widgets — key stats, pending-task tracker, and a combined
+     * activity feed (reservations + messages). Built directly from the property owner
+     * interview findings: both respondents independently asked for these three things.
+     */
+    public function landlordDashboardWidgets()
+    {
+        try {
+            $landlordId = auth()->id();
+            $listingIds = PropertyListing::where('landlord_id', $landlordId)->pluck('id');
+
+            $startOfMonth  = Carbon::now()->startOfMonth();
+            $checkInWindow = Carbon::now()->addDays(14)->toDateString();
+            $today         = Carbon::now()->toDateString();
+
+            // ── KEY STATS ──
+            $stats = [
+                'active_listings' => PropertyListing::where('landlord_id', $landlordId)
+                    ->where('status', 'available')->count(),
+                'pending_reservations' => Reservation::whereIn('listing_id', $listingIds)
+                    ->where('status', 'pending')->count(),
+                'revenue_this_month' => (float) Reservation::whereIn('reservations.listing_id', $listingIds)
+                    ->where('payment_status', 'paid')
+                    ->where('reservations.paid_at', '>=', $startOfMonth)
+                    ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                    ->sum('property_listings.reservation_fee'),
+                'upcoming_checkins' => Reservation::whereIn('listing_id', $listingIds)
+                    ->where('status', 'approved')
+                    ->whereBetween('move_in_date', [$today, $checkInWindow])
+                    ->count(),
+            ];
+
+            // ── TASK TRACKER ── (both interview respondents asked for this specifically)
+            $tasks = [
+                'pending_reservations' => $stats['pending_reservations'],
+                'pending_listing_approvals' => PropertyListing::where('landlord_id', $landlordId)
+                    ->where('is_verified', false)
+                    ->where('status', '!=', 'rejected')
+                    ->count(),
+                'unread_messages' => Message::whereHas('conversation', fn($q) => $q->where('landlord_id', $landlordId))
+                    ->where('sender_id', '!=', $landlordId)
+                    ->whereNull('read_at')
+                    ->count(),
+            ];
+
+            // ── ACTIVITY FEED ── (last 10 combined events — reservations + messages)
+            $recentReservations = Reservation::whereIn('listing_id', $listingIds)
+                ->with(['tenant:id,first_name,last_name', 'listing:id,title'])
+                ->orderBy('created_at', 'desc')
+                ->limit(10)
+                ->get()
+                ->filter(fn($r) => $r->tenant && $r->listing)
+                ->map(fn($r) => [
+                    'type'      => 'reservation',
+                    'message'   => "{$r->tenant->first_name} {$r->tenant->last_name} requested to reserve \"{$r->listing->title}\"",
+                    'status'    => $r->status,
+                    'timestamp' => $r->created_at,
+                ]);
+
+            $recentMessages = Message::whereHas('conversation', fn($q) => $q->where('landlord_id', $landlordId))
+                ->where('sender_id', '!=', $landlordId)
+                ->with(['sender:id,first_name,last_name', 'conversation:id,listing_id', 'conversation.listing:id,title'])
+                ->orderBy('created_at', 'desc')
+                ->limit(10)
+                ->get()
+                ->filter(fn($m) => $m->sender)
+                ->map(fn($m) => [
+                    'type'      => 'message',
+                    'message'   => "{$m->sender->first_name} {$m->sender->last_name} sent a message"
+                        . ($m->conversation && $m->conversation->listing ? " about \"{$m->conversation->listing->title}\"" : ""),
+                    'status'    => null,
+                    'timestamp' => $m->created_at,
+                ]);
+
+            $activityFeed = $recentReservations->concat($recentMessages)
+                ->sortByDesc('timestamp')
+                ->take(10)
+                ->values();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'stats'         => $stats,
+                    'tasks'         => $tasks,
+                    'activity_feed' => $activityFeed,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('landlordDashboardWidgets error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
     public function landlordOverviewForAdmin($landlordId)
     {
         try {
@@ -395,6 +490,52 @@ class AnalyticsController extends Controller
 
         } catch (\Exception $e) {
             Log::error('listingAnalytics error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * ADMIN: every listing platform-wide (regardless of owner), with quick stats each.
+     */
+    public function allListingsSummary()
+    {
+        try {
+            $listings = PropertyListing::with(['landlord:id,first_name,last_name,email', 'images'])
+                ->withCount(['reservations as total_reservations'])
+                ->withCount(['reservations as approved_reservations' => function ($q) {
+                    $q->where('status', 'approved');
+                }])
+                ->withCount(['reservations as pending_reservations' => function ($q) {
+                    $q->where('status', 'pending');
+                }])
+                ->get(['id', 'title', 'landlord_id', 'price', 'status', 'barangay', 'is_verified', 'reservation_fee']);
+
+            $paidCounts = Reservation::where('payment_status', 'paid')
+                ->selectRaw('listing_id, COUNT(*) as paid_count')
+                ->groupBy('listing_id')
+                ->pluck('paid_count', 'listing_id');
+
+            $savedCounts = \App\Models\SavedListing::selectRaw('listing_id, COUNT(*) as cnt')
+                ->groupBy('listing_id')
+                ->pluck('cnt', 'listing_id');
+
+            $listings->each(function ($listing) use ($paidCounts, $savedCounts) {
+                $paid = $paidCounts[$listing->id] ?? 0;
+                $listing->total_revenue = (float) ($paid * ($listing->reservation_fee ?? 0));
+                $listing->saved_count   = $savedCounts[$listing->id] ?? 0;
+            });
+
+            $summary = [
+                'total_listings'      => $listings->count(),
+                'verified_listings'   => $listings->where('is_verified', true)->count(),
+                'total_reservations'  => (int) $listings->sum('total_reservations'),
+                'total_revenue'       => (float) $listings->sum('total_revenue'),
+            ];
+
+            return response()->json(['success' => true, 'data' => ['listings' => $listings, 'summary' => $summary]]);
+
+        } catch (\Exception $e) {
+            Log::error('allListingsSummary error: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }

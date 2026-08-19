@@ -115,6 +115,7 @@ Route::middleware(['auth:api', 'verified', 'active'])->group(function () {
     Route::post('/listings', [ListingController::class, 'store']);
     Route::get('/my-listings', [ListingController::class, 'myListings']);
     Route::get('/landlord/analytics', [AnalyticsController::class, 'landlordOverview']);
+    Route::get('/landlord/dashboard-widgets', [AnalyticsController::class, 'landlordDashboardWidgets']);
     Route::put('/listings/{id}', [ListingController::class, 'update']);
     Route::post('/listings/{id}', [ListingController::class, 'update']); // for FormData _method spoofing
     Route::delete('/listings/{id}', [ListingController::class, 'destroy']);
@@ -147,7 +148,6 @@ Route::middleware(['auth:api', 'admin', 'active'])->group(function () {
     // ✅ Per-landlord analytics (admin)
     Route::get('/admin/landlords',                    [AnalyticsController::class, 'landlordsList']);
     Route::get('/admin/landlords/{id}/analytics',      [AnalyticsController::class, 'landlordOverviewForAdmin']);
-    Route::get('/admin/listings-summary',               [AnalyticsController::class, 'allListingsSummary']);
 
     // ✅ Amenity requests (admin)
     Route::get('/admin/amenity-requests',               [AmenityController::class, 'allRequests']);
