@@ -19,11 +19,6 @@ class AuditLog extends Model
         return $this->belongsTo(User::class, 'admin_id');
     }
 
-    /**
-     * Record an admin action. Wrapped in try/catch by callers is NOT required —
-     * failures here should never block the actual action from completing, so
-     * this method swallows its own errors and just logs them.
-     */
     public static function record($adminId, $action, $targetType, $targetId, $description)
     {
         try {
