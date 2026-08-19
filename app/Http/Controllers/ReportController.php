@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Reservation;
 use App\Models\PropertyListing;
+use App\Models\Expense;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 
@@ -124,5 +125,34 @@ class ReportController extends Controller
         $headers = ['Listing', 'Barangay', 'Price (PHP/mo)', 'Occupancy Status', 'Verified', 'Total Reservations', 'Approved Reservations'];
 
         return $this->streamCsv('occupancy-report-' . now()->format('Y-m-d') . '.csv', $headers, $rows);
+    }
+
+    /**
+     * Expense Report — the one report from Client 2's Q10 that genuinely didn't
+     * exist until Expense Tracking was built.
+     */
+    public function expenseReport(Request $request)
+    {
+        [$start, $end] = $this->resolveRange($request);
+        $landlordId = auth()->id();
+        $listingIds = PropertyListing::where('landlord_id', $landlordId)->pluck('id');
+
+        $expenses = Expense::whereIn('listing_id', $listingIds)
+            ->whereBetween('expense_date', [$start, $end])
+            ->with('listing:id,title')
+            ->orderBy('expense_date', 'desc')
+            ->get();
+
+        $rows = $expenses->map(fn($e) => [
+            $e->expense_date->format('Y-m-d'),
+            $e->listing->title ?? '',
+            $e->category,
+            number_format((float) $e->amount, 2),
+            $e->description ?? '',
+        ]);
+
+        $headers = ['Date', 'Listing', 'Category', 'Amount (PHP)', 'Description'];
+
+        return $this->streamCsv('expense-report-' . now()->format('Y-m-d') . '.csv', $headers, $rows);
     }
 }
