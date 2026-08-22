@@ -502,6 +502,119 @@ class AnalyticsController extends Controller
         }
     }
 
+    /**
+     * ADMIN: Model Monitoring — walk-forward cross-validation of the Linear
+     * Regression forecasting model, reporting R², RMSE, and MAE.
+     *
+     * Walk-forward validation respects the chronological order of time-series
+     * data (unlike a random k-fold split, which would let the model "see"
+     * future months during training): for each split point, the model is
+     * trained only on months *before* that point and predicts the next
+     * month forward — exactly matching how the live dashboard forecast is
+     * actually generated — then the prediction is compared against what
+     * really happened.
+     */
+    public function modelMonitoring()
+    {
+        try {
+            $minTrainMonths = 3; // need at least 3 points to fit a meaningful line
+
+            // ── Pull ALL monthly search (demand) and reservation counts —
+            // not capped to the last 6 months like the dashboard forecast,
+            // since validation benefits from every historical month available ──
+            $searchByMonth = SearchLog::selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+                ->groupBy('month')->orderBy('month')->get();
+
+            $reservationByMonth = Reservation::selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+                ->groupBy('month')->orderBy('month')->get();
+
+            $demandMetrics = $this->walkForwardValidate($searchByMonth->pluck('count')->toArray(), $minTrainMonths);
+            $reservationMetrics = $this->walkForwardValidate($reservationByMonth->pluck('count')->toArray(), $minTrainMonths);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'demand_forecast_model' => [
+                        'metric_label'           => 'Tenant Demand (Search Activity) Forecast',
+                        'total_months_available' => count($searchByMonth),
+                        'validation_points_used' => $demandMetrics['n'],
+                        'r_squared'              => $demandMetrics['r2'],
+                        'rmse'                   => $demandMetrics['rmse'],
+                        'mae'                    => $demandMetrics['mae'],
+                        'predictions'            => $demandMetrics['pairs'],
+                        'sufficient_data'        => $demandMetrics['n'] >= 3,
+                    ],
+                    'reservation_forecast_model' => [
+                        'metric_label'           => 'Reservation Volume Forecast',
+                        'total_months_available' => count($reservationByMonth),
+                        'validation_points_used' => $reservationMetrics['n'],
+                        'r_squared'              => $reservationMetrics['r2'],
+                        'rmse'                   => $reservationMetrics['rmse'],
+                        'mae'                    => $reservationMetrics['mae'],
+                        'predictions'            => $reservationMetrics['pairs'],
+                        'sufficient_data'        => $reservationMetrics['n'] >= 3,
+                    ],
+                    'methodology' => 'Walk-forward validation: the model is trained only on months prior to '
+                        . 'each prediction point (never future months), then evaluated against the actual '
+                        . 'outcome for that month. This respects the chronological order of time-series data, '
+                        . 'unlike random k-fold splitting, which would leak future information into training.',
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('modelMonitoring error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Walk-forward cross-validation for the Linear Regression forecaster.
+     * For each valid split point, trains on months [0..split-1] and predicts
+     * month [split], then compares the prediction against the real value.
+     * Returns R² (goodness of fit vs. the mean baseline), RMSE, and MAE
+     * computed across every walk-forward prediction made.
+     */
+    private function walkForwardValidate(array $values, int $minTrainMonths = 3): array
+    {
+        $n = count($values);
+        $pairs = [];
+
+        for ($split = $minTrainMonths; $split < $n; $split++) {
+            $train     = array_slice($values, 0, $split);
+            $actual    = $values[$split];
+            $predicted = $this->linearRegressionForecastMulti($train, 1)[0];
+            $pairs[]   = ['month_index' => $split, 'actual' => $actual, 'predicted' => $predicted];
+        }
+
+        $count = count($pairs);
+        if ($count === 0) {
+            return ['n' => 0, 'r2' => null, 'rmse' => null, 'mae' => null, 'pairs' => []];
+        }
+
+        $actuals    = array_column($pairs, 'actual');
+        $predicteds = array_column($pairs, 'predicted');
+        $meanActual = array_sum($actuals) / $count;
+
+        $sumSqError  = 0;
+        $sumAbsError = 0;
+        $sumSqTotal  = 0;
+
+        for ($i = 0; $i < $count; $i++) {
+            $error = $actuals[$i] - $predicteds[$i];
+            $sumSqError  += $error * $error;
+            $sumAbsError += abs($error);
+            $sumSqTotal  += ($actuals[$i] - $meanActual) ** 2;
+        }
+
+        $mae  = round($sumAbsError / $count, 2);
+        $rmse = round(sqrt($sumSqError / $count), 2);
+        // R² compares model error against a naive "always predict the mean" baseline.
+        // Undefined (null) when every actual value is identical (no variance to explain).
+        $r2   = $sumSqTotal > 0 ? round(1 - ($sumSqError / $sumSqTotal), 3) : null;
+
+        return ['n' => $count, 'r2' => $r2, 'rmse' => $rmse, 'mae' => $mae, 'pairs' => $pairs];
+    }
+
     public function landlordOverviewForAdmin($landlordId)
     {
         try {
