@@ -229,6 +229,21 @@ class AnalyticsController extends Controller
                 $monthlyData->pluck('count')->toArray()
             );
 
+            // ✅ Forecast Reliability — plain-language translation of the same walk-forward
+            // validation MAE shown to Admin on Model Monitoring, so Property Owners can see
+            // how trustworthy the forecast has historically been, without needing to
+            // understand R²/RMSE. This reflects the model's overall platform-wide accuracy,
+            // not this owner's specific listings — individual owners rarely have enough of
+            // their own reservation history to validate separately.
+            $reservationReliability = $this->walkForwardValidate(
+                Reservation::selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+                    ->groupBy('month')->orderBy('month')->pluck('count')->toArray(),
+                3
+            );
+            $forecastReliability = $reservationReliability['n'] >= 3
+                ? "Our forecasting model has historically predicted within about ± {$reservationReliability['mae']} reservations of the actual result, platform-wide."
+                : null; // not enough historical months yet — omit rather than show a misleading figure
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -242,6 +257,7 @@ class AnalyticsController extends Controller
                         'demand_next_3_months'       => $demandForecast,
                         'reservations_next_3_months' => $reservationForecast,
                         'insight'                      => $insight,
+                        'reliability_note'            => $forecastReliability,
                     ],
                 ],
             ]);
