@@ -89,6 +89,7 @@ Route::middleware(['auth:api', 'active'])->group(function () {
 
     Route::post('/ranking', [RankingController::class, 'store']);
     Route::get('/my-ranking', [RankingController::class, 'myRanking']);
+    Route::get('/ranking/national-income-context', [RankingController::class, 'nationalIncomeContext']);
 
     Route::post('/verify', [VerificationController::class, 'submit']);
     Route::get('/verify/status', [VerificationController::class, 'myStatus']);

@@ -5,9 +5,28 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\PropertyListing;
 use App\Models\AffordabilityRanking;
+use App\Services\PsaOpenStatService;
 
 class RankingController extends Controller
 {
+    /**
+     * Real PSA OpenSTAT integration — fetches the actual Philippine
+     * average family income statistic for display alongside Affordability
+     * Ranking results. Genuine public government data (CC BY 4.0),
+     * never fabricated. Returns null gracefully if not yet configured
+     * or if PSA's API is unavailable — this is supplementary context,
+     * never something that should break the ranking calculator itself.
+     */
+    public function nationalIncomeContext(PsaOpenStatService $psa)
+    {
+        $stat = $psa->getAverageFamilyIncome();
+
+        return response()->json([
+            'success' => true,
+            'data' => $stat, // null if not configured/unavailable — frontend handles gracefully
+        ]);
+    }
+
     public function store(Request $request)
     {
         \App\Models\SearchLog::log('ranking', auth()->id());

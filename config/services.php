@@ -53,6 +53,10 @@ return [
         'public_key' => env('XENDIT_PUBLIC_KEY'),
     ],
 
+    'psa' => [
+        'family_income_table_url' => env('PSA_FAMILY_INCOME_TABLE_URL'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
