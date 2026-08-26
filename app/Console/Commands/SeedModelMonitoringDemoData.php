@@ -92,9 +92,10 @@ class SeedModelMonitoringDemoData extends Command
             if (count($row) !== count($header)) continue; // skip malformed/blank lines
             $data = array_combine($header, $row);
 
-            $timestamp = Carbon::now()
-                ->subMonths((int) $data['months_ago'])
-                ->addDays(rand(0, 25))
+            $targetMonth = Carbon::now()->subMonths((int) $data['months_ago'])->startOfMonth();
+            $maxDay = min(25, $targetMonth->daysInMonth - 1); // never spill into the next month
+            $timestamp = $targetMonth->copy()
+                ->addDays(rand(0, $maxDay))
                 ->addHours(rand(0, 23));
 
             $log = new SearchLog();
@@ -122,9 +123,10 @@ class SeedModelMonitoringDemoData extends Command
             if (count($row) !== count($header)) continue;
             $data = array_combine($header, $row);
 
-            $timestamp = Carbon::now()
-                ->subMonths((int) $data['months_ago'])
-                ->addDays(rand(0, 25))
+            $targetMonth = Carbon::now()->subMonths((int) $data['months_ago'])->startOfMonth();
+            $maxDay = min(25, $targetMonth->daysInMonth - 1); // never spill into the next month
+            $timestamp = $targetMonth->copy()
+                ->addDays(rand(0, $maxDay))
                 ->addHours(rand(0, 23));
 
             $res = new Reservation();
