@@ -135,6 +135,13 @@ class PsaOpenStatService
         }
 
         if ($live && $this->looksLikeRealData($live)) {
+            // PSA's live indicator values are denominated "in thousand pesos" —
+            // normalize to full peso figures here so the frontend never has
+            // to know or guess which source (live vs. static) it received.
+            $live['data'] = array_map(fn($row) => [
+                'label' => $row['label'],
+                'value' => $row['value'] * 1000,
+            ], $live['data']);
             $live['is_live'] = true;
             return $live;
         }
