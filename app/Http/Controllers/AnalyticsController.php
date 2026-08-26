@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\IdentityVerification;
 use App\Models\SearchLog;
 use App\Models\Message;
+use App\Services\ForecastingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -592,43 +593,7 @@ class AnalyticsController extends Controller
      */
     private function walkForwardValidate(array $values, int $minTrainMonths = 3): array
     {
-        $n = count($values);
-        $pairs = [];
-
-        for ($split = $minTrainMonths; $split < $n; $split++) {
-            $train     = array_slice($values, 0, $split);
-            $actual    = $values[$split];
-            $predicted = $this->linearRegressionForecastMulti($train, 1)[0];
-            $pairs[]   = ['month_index' => $split, 'actual' => $actual, 'predicted' => $predicted];
-        }
-
-        $count = count($pairs);
-        if ($count === 0) {
-            return ['n' => 0, 'r2' => null, 'rmse' => null, 'mae' => null, 'pairs' => []];
-        }
-
-        $actuals    = array_column($pairs, 'actual');
-        $predicteds = array_column($pairs, 'predicted');
-        $meanActual = array_sum($actuals) / $count;
-
-        $sumSqError  = 0;
-        $sumAbsError = 0;
-        $sumSqTotal  = 0;
-
-        for ($i = 0; $i < $count; $i++) {
-            $error = $actuals[$i] - $predicteds[$i];
-            $sumSqError  += $error * $error;
-            $sumAbsError += abs($error);
-            $sumSqTotal  += ($actuals[$i] - $meanActual) ** 2;
-        }
-
-        $mae  = round($sumAbsError / $count, 2);
-        $rmse = round(sqrt($sumSqError / $count), 2);
-        // R² compares model error against a naive "always predict the mean" baseline.
-        // Undefined (null) when every actual value is identical (no variance to explain).
-        $r2   = $sumSqTotal > 0 ? round(1 - ($sumSqError / $sumSqTotal), 3) : null;
-
-        return ['n' => $count, 'r2' => $r2, 'rmse' => $rmse, 'mae' => $mae, 'pairs' => $pairs];
+        return (new ForecastingService())->walkForwardValidate($values, $minTrainMonths);
     }
 
     public function landlordOverviewForAdmin($landlordId)
@@ -1084,43 +1049,7 @@ class AnalyticsController extends Controller
      */
     private function linearRegressionForecastMulti(array $values, int $periodsAhead = 1): array
     {
-        $n = count($values);
-        if ($n < 2) {
-            $flat = $n === 1 ? $values[0] : 0;
-            return array_fill(0, $periodsAhead, $flat);
-        }
-
-        $x = range(0, $n - 1);
-        $y = $values;
-
-        $sumX  = array_sum($x);
-        $sumY  = array_sum($y);
-        $sumXY = 0;
-        $sumX2 = 0;
-
-        for ($i = 0; $i < $n; $i++) {
-            $sumXY += $x[$i] * $y[$i];
-            $sumX2 += $x[$i] * $x[$i];
-        }
-
-        $denominator = ($n * $sumX2) - ($sumX * $sumX);
-
-        if ($denominator == 0) {
-            $flat = round(array_sum($y) / $n, 1);
-            return array_fill(0, $periodsAhead, $flat);
-        }
-
-        $m = (($n * $sumXY) - ($sumX * $sumY)) / $denominator;
-        $b = ($sumY - ($m * $sumX)) / $n;
-
-        $forecasts = [];
-        for ($step = 0; $step < $periodsAhead; $step++) {
-            $futureX = $n + $step;
-            $predicted = ($m * $futureX) + $b;
-            $forecasts[] = round(max(0, $predicted), 1);
-        }
-
-        return $forecasts;
+        return (new ForecastingService())->linearRegressionForecastMulti($values, $periodsAhead);
     }
 
     /**
