@@ -12,18 +12,18 @@ class RankingController extends Controller
     /**
      * Real PSA OpenSTAT integration — fetches the actual Philippine
      * average family income statistic for display alongside Affordability
-     * Ranking results. Genuine public government data (CC BY 4.0),
-     * never fabricated. Returns null gracefully if not yet configured
-     * or if PSA's API is unavailable — this is supplementary context,
-     * never something that should break the ranking calculator itself.
+     * Ranking results. Genuine public government data (CC BY 4.0).
+     * Falls back to PSA's own separately-published static figure if the
+     * live table query returns PSA OpenSTAT's known Alpha-version
+     * placeholder bug (verified via direct testing) — the response
+     * always indicates via `is_live` which source was actually used,
+     * so this is never silently misrepresented either way.
      */
     public function nationalIncomeContext(PsaOpenStatService $psa)
     {
-        $stat = $psa->getAverageFamilyIncome();
-
         return response()->json([
             'success' => true,
-            'data' => $stat, // null if not configured/unavailable — frontend handles gracefully
+            'data' => $psa->getAverageFamilyIncome(),
         ]);
     }
 

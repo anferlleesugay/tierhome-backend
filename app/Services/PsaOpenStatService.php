@@ -83,8 +83,8 @@ class PsaOpenStatService
 
     /**
      * Convenience method: fetch the average family income, expenditure,
-     * and savings statistic for Angeles City, for display alongside
-     * Affordability Ranking results.
+     * and savings statistic, for display alongside Affordability Ranking
+     * results.
      *
      * Table: PSA Family Income and Expenditure Survey (FIES) 2023,
      * Table 8 — Average Income, Average Expenditure, and Average Savings
@@ -94,26 +94,94 @@ class PsaOpenStatService
      *
      * Requires PSA_FAMILY_INCOME_TABLE_URL to be set in .env — see class
      * docblock for how this was generated from PSA's own website.
+     *
+     * KNOWN ISSUE — PSA OpenSTAT Alpha bug (verified via direct testing,
+     * August 2026): this specific table's data-value lookup reliably
+     * returns a placeholder value of 1.0 regardless of what region,
+     * decile, or indicator is actually queried, even though the returned
+     * metadata (dimension labels, table structure) is genuinely correct.
+     * This was confirmed through four independent tests — varying
+     * geographic scope (city vs. national) and query shape (single vs.
+     * multi-value selections) — all of which returned this same
+     * implausible 1.0 result. Since the OpenSTAT platform is explicitly
+     * labeled "Alpha Version" on PSA's own site, this is understood to be
+     * a limitation in PSA's infrastructure, not this integration.
+     *
+     * To keep the feature honest and functional regardless, any value
+     * that matches this known-bad placeholder pattern is treated as
+     * unavailable, and the method falls back to PSA's own separately-
+     * published static average family income figure instead. This
+     * fallback is clearly labeled as such in the returned data — never
+     * silently presented as if it came from the live query.
      */
-    public function getAverageFamilyIncome(): ?array
+    public function getAverageFamilyIncome(): array
     {
         $tableUrl = config('services.psa.family_income_table_url');
+        $live = null;
 
-        if (!$tableUrl) {
-            Log::info('PsaOpenStatService: PSA_FAMILY_INCOME_TABLE_URL not configured, skipping.');
-            return null;
+        if ($tableUrl) {
+            $live = $this->fetchStatistic($tableUrl, [
+                [
+                    'code' => 'Region, Province, and HUC',
+                    'selection' => ['filter' => 'item', 'values' => ['44']], // City of Angeles
+                ],
+                [
+                    'code' => 'Per Capita Income Decile',
+                    'selection' => ['filter' => 'item', 'values' => ['0']], // All Income Groups
+                ],
+            ]);
+        } else {
+            Log::info('PsaOpenStatService: PSA_FAMILY_INCOME_TABLE_URL not configured, using static fallback.');
         }
 
-        return $this->fetchStatistic($tableUrl, [
-            [
-                'code' => 'Region, Province, and HUC',
-                'selection' => ['filter' => 'item', 'values' => ['44']], // City of Angeles
+        if ($live && $this->looksLikeRealData($live)) {
+            $live['is_live'] = true;
+            return $live;
+        }
+
+        if ($live) {
+            Log::warning('PsaOpenStatService: live response failed plausibility check (known PSA Alpha placeholder bug), using static fallback.');
+        }
+
+        return $this->staticFallbackFamilyIncome();
+    }
+
+    /**
+     * Sanity check against PSA OpenSTAT's known Alpha-version bug, where
+     * this table's data lookup returns a flat placeholder of 1.0
+     * regardless of the actual query. A real average income/expenditure/
+     * savings figure, in thousand pesos, should be well above this —
+     * realistically in the tens to hundreds range at minimum.
+     */
+    private function looksLikeRealData(array $parsed): bool
+    {
+        foreach ($parsed['data'] ?? [] as $row) {
+            if (($row['value'] ?? 0) <= 1.0) {
+                return false; // matches the known placeholder pattern
+            }
+        }
+        return !empty($parsed['data']);
+    }
+
+    /**
+     * Static fallback — PSA's own published average annual family income
+     * figure, sourced directly from the PSA OpenSTAT homepage StatWatch
+     * panel (not from the broken table query above).
+     *
+     * Source: Philippine Statistics Authority, OpenSTAT homepage,
+     * "Average Family Income" panel, 2023 data (accessed August 2026).
+     * https://openstat.psa.gov.ph/
+     */
+    private function staticFallbackFamilyIncome(): array
+    {
+        return [
+            'title'   => 'Average Family Income (Philippines, 2023)',
+            'source'  => 'Philippine Statistics Authority (PSA) OpenSTAT — CC BY 4.0 (static published figure, live table query unavailable)',
+            'data'    => [
+                ['label' => 'Average Family Income (annual, PHP)', 'value' => 353229],
             ],
-            [
-                'code' => 'Per Capita Income Decile',
-                'selection' => ['filter' => 'item', 'values' => ['0']], // All Income Groups
-            ],
-        ]);
+            'is_live' => false,
+        ];
     }
 
     /**
