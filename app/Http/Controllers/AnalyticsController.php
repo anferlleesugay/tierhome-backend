@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\IdentityVerification;
 use App\Models\SearchLog;
 use App\Models\Message;
+use App\Models\Conversation;
 use App\Services\ForecastingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -440,6 +441,18 @@ class AnalyticsController extends Controller
                 ? round((($revenueThisMonth - $revenueLastMonth) / $revenueLastMonth) * 100)
                 : null;
 
+            // ── Moved here from Admin Analytics, which duplicated these against the
+            // quick-stats above — Total Searches has no prior home on the Dashboard,
+            // and the moderation-overview numbers give the admin a fuller at-a-glance
+            // picture without needing to visit Analytics separately.
+            $totalSearches = SearchLog::count();
+
+            $verifiedUsersCount = IdentityVerification::where('status', 'approved')
+                ->whereNotNull('face_id')->count();
+
+            $conversationsCount = Conversation::where('tenant_id', auth()->id())
+                ->orWhere('landlord_id', auth()->id())->count();
+
             $stats = [
                 'active_users'             => $activeUsersCount,
                 'active_listings'          => $activeListingsCount,
@@ -447,6 +460,17 @@ class AnalyticsController extends Controller
                 'reservations_change_pct'  => $reservationsChangePct,
                 'revenue_this_month'       => $revenueThisMonth,
                 'revenue_change_pct'       => $revenueChangePct,
+                'total_searches'           => $totalSearches,
+            ];
+
+            // ── MODERATION OVERVIEW ── reuses the pending counts already computed
+            // below in $tasks rather than re-querying them.
+            $moderation = [
+                'verified_users'         => $verifiedUsersCount,
+                'pending_verifications'  => IdentityVerification::where('status', 'pending')->count(),
+                'pending_listings'       => PropertyListing::where('is_verified', false)
+                    ->where('status', '!=', 'rejected')->count(),
+                'conversations'          => $conversationsCount,
             ];
 
             // ── TASK TRACKER ── everything an admin needs to act on right now
@@ -511,6 +535,7 @@ class AnalyticsController extends Controller
                 'data' => [
                     'stats'         => $stats,
                     'tasks'         => $tasks,
+                    'moderation'    => $moderation,
                     'activity_feed' => $activityFeed,
                 ],
             ]);
