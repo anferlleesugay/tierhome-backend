@@ -338,6 +338,17 @@ class AnalyticsController extends Controller
                 ? round((($reservationsThisMonth - $reservationsLastMonth) / $reservationsLastMonth) * 100)
                 : null;
 
+            // ── Area Searches — no home elsewhere on the Dashboard; mirrors the same
+            // barangay-matching logic used in the full Analytics page's demand chart.
+            $landlordBarangays = PropertyListing::where('landlord_id', $landlordId)
+                ->pluck('barangay')->filter()
+                ->map(fn($b) => strtolower(trim(str_ireplace('barangay', '', $b))))
+                ->unique();
+            $areaSearchesCount = SearchLog::whereIn(
+                \DB::raw("TRIM(REPLACE(LOWER(barangay), 'barangay', ''))"),
+                $landlordBarangays
+            )->count();
+
             $stats = [
                 'active_listings'       => PropertyListing::where('landlord_id', $landlordId)
                     ->where('status', 'available')->count(),
@@ -352,6 +363,7 @@ class AnalyticsController extends Controller
                     ->where('status', 'approved')
                     ->whereBetween('move_in_date', [$today, $checkInWindow])
                     ->count(),
+                'area_searches'         => $areaSearchesCount,
             ];
 
             // ── TASK TRACKER ── (both interview respondents asked for this specifically)
