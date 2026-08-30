@@ -414,7 +414,7 @@ class AnalyticsController extends Controller
             $endOfLastMonth   = Carbon::now()->subMonth()->endOfMonth();
 
             // ── KEY STATS ── Active Users / Active Listings / Reservations / Platform Revenue, w/ MoM
-            $activeUsersCount = User::where('is_active', true)->count();
+            $activeUsersCount = User::where('is_active', true)->where('role', '!=', 'admin')->count();
 
             $activeListingsCount = PropertyListing::where('status', 'available')->count();
 
