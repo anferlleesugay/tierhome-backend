@@ -193,6 +193,23 @@ class AnalyticsController extends Controller
                 $l->revenue = (float) ($paid * ($l->reservation_fee ?? 0));
             });
 
+            // ── Itemized paid-reservation breakdown — the exact transactions behind the
+            // owner's total_revenue figure, matching the admin-facing equivalent.
+            $paidReservations = Reservation::whereIn('listing_id', $listingIds)
+                ->where('payment_status', 'paid')
+                ->with(['tenant:id,first_name,last_name', 'listing:id,title,reservation_fee'])
+                ->orderByDesc('paid_at')
+                ->get()
+                ->map(function ($r) {
+                    return [
+                        'id'             => $r->id,
+                        'tenant_name'    => trim(($r->tenant->first_name ?? '') . ' ' . ($r->tenant->last_name ?? '')) ?: 'Unknown tenant',
+                        'listing_title'  => $r->listing->title ?? 'Unknown listing',
+                        'amount'         => (float) ($r->listing->reservation_fee ?? 0),
+                        'paid_at'        => $r->paid_at,
+                    ];
+                });
+
             // ✅ Upcoming Vacancies — Client 2 (Q12) explicitly named this alongside occupancy
             // rate as something they currently have to guess at. Approved reservations whose
             // move-out date falls in the next 30 days mean that unit is about to free up.
@@ -254,6 +271,7 @@ class AnalyticsController extends Controller
                     'searches_by_month'      => $searchMonthlyData,
                     'revenue_by_month'       => $revenueMonthlyData,
                     'listing_performance'    => $listingPerformance,
+                    'paid_reservations'      => $paidReservations,
                     'upcoming_vacancies'     => $upcomingVacancies,
                     'forecast' => [
                         'demand_next_3_months'       => $demandForecast,
