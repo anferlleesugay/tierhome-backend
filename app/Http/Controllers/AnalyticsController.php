@@ -414,6 +414,8 @@ class AnalyticsController extends Controller
             $endOfLastMonth   = Carbon::now()->subMonth()->endOfMonth();
 
             // ── KEY STATS ── Active Users / Active Listings / Reservations / Platform Revenue, w/ MoM
+            // Excludes admin accounts — this stat is meant to reflect real platform users
+            // (tenants + property owners), not internal admin staff.
             $activeUsersCount = User::where('is_active', true)->where('role', '!=', 'admin')->count();
 
             $activeListingsCount = PropertyListing::where('status', 'available')->count();
@@ -644,6 +646,25 @@ class AnalyticsController extends Controller
                 }])
                 ->with('images')
                 ->get(['id', 'title', 'price', 'status', 'barangay', 'is_verified']);
+
+            // ── Itemized paid-reservation breakdown — the exact transactions that make up
+            // this owner's total_revenue figure, so an admin can see where the money came from
+            // rather than just a lump sum.
+            $paidReservations = Reservation::whereIn('listing_id', $listingIds)
+                ->where('payment_status', 'paid')
+                ->with(['tenant:id,first_name,last_name', 'listing:id,title,reservation_fee'])
+                ->orderByDesc('paid_at')
+                ->get()
+                ->map(function ($r) {
+                    return [
+                        'id'             => $r->id,
+                        'tenant_name'    => trim(($r->tenant->first_name ?? '') . ' ' . ($r->tenant->last_name ?? '')) ?: 'Unknown tenant',
+                        'listing_title'  => $r->listing->title ?? 'Unknown listing',
+                        'amount'         => (float) ($r->listing->reservation_fee ?? 0),
+                        'paid_at'        => $r->paid_at,
+                        'transaction_id' => $r->paymongo_payment_intent_id,
+                    ];
+                });
  
             $summary = [
                 'total_listings'       => $listingIds->count(),
@@ -673,6 +694,7 @@ class AnalyticsController extends Controller
                     'searches_by_month'      => $searchMonthlyData,
                     'revenue_by_month'       => $revenueMonthlyData,
                     'listing_performance'    => $listingPerformance,
+                    'paid_reservations'      => $paidReservations,
                     'forecast' => [
                         'demand_next_3_months'       => $demandForecast,
                         'reservations_next_3_months' => $reservationForecast,
