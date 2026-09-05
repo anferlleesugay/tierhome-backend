@@ -10,17 +10,64 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthController extends Controller
 {
+    /**
+     * Verifies a reCAPTCHA v2 token against Google's siteverify endpoint.
+     * This is the server-side check that actually stops bots — without
+     * this, the frontend widget is purely cosmetic, since a bot could
+     * simply omit or fake the token in a raw API request.
+     *
+     * Fails closed: any network error, missing config, or unsuccessful
+     * Google response results in verification failure (never silently
+     * allows a request through on error).
+     */
+    private function verifyRecaptcha(?string $token): bool
+    {
+        $secretKey = config('services.recaptcha.secret_key');
+
+        if (!$secretKey) {
+            Log::warning('AuthController: RECAPTCHA_SECRET_KEY not configured — rejecting request.');
+            return false;
+        }
+
+        if (!$token) {
+            return false;
+        }
+
+        try {
+            $response = Http::asForm()->post('https://www.google.com/recaptcha/api/siteverify', [
+                'secret'   => $secretKey,
+                'response' => $token,
+            ]);
+
+            return $response->successful() && $response->json('success') === true;
+
+        } catch (\Exception $e) {
+            Log::warning('AuthController: reCAPTCHA verification request failed — ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public function sendOtp(Request $request)
     {
         $request->validate([
-            'email'      => 'required|email|unique:users,email',
-            'first_name' => 'required|string',
+            'email'          => 'required|email|unique:users,email',
+            'first_name'     => 'required|string',
+            'recaptcha_token' => 'required|string',
         ]);
+
+        if (!$this->verifyRecaptcha($request->recaptcha_token)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'reCAPTCHA verification failed. Please try again.',
+            ], 422);
+        }
 
         OtpCode::where('email', $request->email)->delete();
 
@@ -120,9 +167,18 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'email'    => 'required|email',
-            'password' => 'required',
+            'email'          => 'required|email',
+            'password'       => 'required',
+            'recaptcha_token' => 'required|string',
         ]);
+
+        if (!$this->verifyRecaptcha($request->recaptcha_token)) {
+            return response()->json([
+                'success' => false,
+                'data'    => null,
+                'message' => 'reCAPTCHA verification failed. Please try again.',
+            ], 422);
+        }
 
         if (!$token = JWTAuth::attempt($request->only('email', 'password'))) {
             return response()->json([
