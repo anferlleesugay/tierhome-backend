@@ -18,16 +18,18 @@ use Tymon\JWTAuth\Facades\JWTAuth;
 class AuthController extends Controller
 {
     /**
-     * Verifies a reCAPTCHA v2 token against Google's siteverify endpoint.
-     * This is the server-side check that actually stops bots — without
-     * this, the frontend widget is purely cosmetic, since a bot could
-     * simply omit or fake the token in a raw API request.
+     * Verifies a reCAPTCHA v3 token against Google's siteverify endpoint.
+     * Unlike v2 (simple pass/fail), v3 returns a risk score from 0.0 (likely
+     * bot) to 1.0 (likely human) plus the action name the token was issued
+     * for. Both are checked here:
+     *   - score >= threshold (0.5 is Google's own recommended default)
+     *   - action matches what was expected for this specific endpoint,
+     *     so a token generated for "register" can't be replayed on "login"
      *
-     * Fails closed: any network error, missing config, or unsuccessful
-     * Google response results in verification failure (never silently
-     * allows a request through on error).
+     * Fails closed: any network error, missing config, low score, or
+     * action mismatch results in verification failure.
      */
-    private function verifyRecaptcha(?string $token): bool
+    private function verifyRecaptcha(?string $token, string $expectedAction, float $threshold = 0.5): bool
     {
         $secretKey = config('services.recaptcha.secret_key');
 
@@ -46,7 +48,24 @@ class AuthController extends Controller
                 'response' => $token,
             ]);
 
-            return $response->successful() && $response->json('success') === true;
+            if (!$response->successful() || $response->json('success') !== true) {
+                return false;
+            }
+
+            $score  = (float) $response->json('score', 0);
+            $action = $response->json('action');
+
+            if ($score < $threshold) {
+                Log::info("AuthController: reCAPTCHA score too low ({$score}) for action '{$expectedAction}'.");
+                return false;
+            }
+
+            if ($action !== $expectedAction) {
+                Log::warning("AuthController: reCAPTCHA action mismatch — expected '{$expectedAction}', got '{$action}'.");
+                return false;
+            }
+
+            return true;
 
         } catch (\Exception $e) {
             Log::warning('AuthController: reCAPTCHA verification request failed — ' . $e->getMessage());
@@ -62,7 +81,7 @@ class AuthController extends Controller
             'recaptcha_token' => 'required|string',
         ]);
 
-        if (!$this->verifyRecaptcha($request->recaptcha_token)) {
+        if (!$this->verifyRecaptcha($request->recaptcha_token, 'register')) {
             return response()->json([
                 'success' => false,
                 'message' => 'reCAPTCHA verification failed. Please try again.',
@@ -172,7 +191,7 @@ class AuthController extends Controller
             'recaptcha_token' => 'required|string',
         ]);
 
-        if (!$this->verifyRecaptcha($request->recaptcha_token)) {
+        if (!$this->verifyRecaptcha($request->recaptcha_token, 'login')) {
             return response()->json([
                 'success' => false,
                 'data'    => null,
