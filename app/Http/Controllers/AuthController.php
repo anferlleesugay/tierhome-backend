@@ -135,7 +135,7 @@ class AuthController extends Controller
         $request->validate([
             'last_name'      => 'required|string|max:255',
             'first_name'     => 'required|string|max:255',
-            'middle_initial' => 'nullable|string|max:2',
+            'middle_initial' => 'nullable|string|max:100',
             'phone_number'   => ['required', 'digits:11', 'regex:/^09[0-9]{9}$/'],
             'email'          => 'required|email|unique:users,email',
             'password'       => 'required|min:8',
