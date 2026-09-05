@@ -10,6 +10,17 @@ use Illuminate\Http\Request;
 class ListingController extends Controller
 {
     /**
+     * GET REAL ACTIVE LISTING COUNT (PUBLIC)
+     * Used to replace the previous hardcoded "500+ Listings" marketing text
+     * on the Login page with a genuine, live number.
+     */
+    public function publicCount()
+    {
+        $count = PropertyListing::where('status', 'available')->count();
+        return response()->json(['success' => true, 'data' => ['count' => $count]]);
+    }
+
+    /**
      * GET ALL LISTINGS (PUBLIC)
      */
     public function index(Request $request)

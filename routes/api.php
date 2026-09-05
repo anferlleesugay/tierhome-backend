@@ -49,6 +49,7 @@ Route::prefix('auth')->group(function () {
 });
 
 Route::get('/listings', [ListingController::class, 'index']);
+Route::get('/listings/count', [ListingController::class, 'publicCount']);
 Route::get('/listings/nearby', [ListingController::class, 'nearby']);
 Route::get('/listings/{id}', [ListingController::class, 'show']);
 
