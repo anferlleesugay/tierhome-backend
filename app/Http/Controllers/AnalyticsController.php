@@ -471,7 +471,13 @@ class AnalyticsController extends Controller
                 ? round((($revenueThisMonth - $revenueLastMonth) / $revenueLastMonth) * 100)
                 : null;
 
-            // ── Moved here from Admin Analytics, which duplicated these against the
+            // ── All-time total, shown alongside the "this month" figure so it's
+            // unmistakable which number is which (previously the Dashboard only
+            // showed "this month", which reads as ₱0/near-zero right after any
+            // slow month even though the platform's lifetime total is healthy).
+            $revenueAllTime = (float) Reservation::where('payment_status', 'paid')
+                ->join('property_listings', 'reservations.listing_id', '=', 'property_listings.id')
+                ->sum('property_listings.reservation_fee');
             // quick-stats above — Total Searches has no prior home on the Dashboard,
             // and the moderation-overview numbers give the admin a fuller at-a-glance
             // picture without needing to visit Analytics separately.
@@ -490,6 +496,7 @@ class AnalyticsController extends Controller
                 'reservations_change_pct'  => $reservationsChangePct,
                 'revenue_this_month'       => $revenueThisMonth,
                 'revenue_change_pct'       => $revenueChangePct,
+                'revenue_all_time'         => $revenueAllTime,
                 'total_searches'           => $totalSearches,
             ];
 
