@@ -22,7 +22,7 @@ class User extends Authenticatable implements JWTSubject
         'name',
         'last_name',
         'first_name',
-        'middle_initial',
+        'middle_name',
         'phone_number',
         'email',
         'password',
@@ -89,8 +89,8 @@ class User extends Authenticatable implements JWTSubject
     {
         return trim(
             $this->first_name . ' ' .
-            ($this->middle_initial
-                ? $this->middle_initial . '. '
+            ($this->middle_name
+                ? $this->middle_name . ' '
                 : '') .
             $this->last_name
         );

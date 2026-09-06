@@ -171,7 +171,7 @@ class ProfileController extends Controller
             'id'                  => $user->id,
             'first_name'          => $user->first_name,
             'last_name'           => $user->last_name,
-            'middle_initial'      => $user->middle_initial,
+            'middle_name'         => $user->middle_name,
             'name'                => $user->name,
             'role'                => $user->role,
             'verification_status' => $user->verification_status,

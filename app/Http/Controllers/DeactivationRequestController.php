@@ -255,7 +255,7 @@ class DeactivationRequestController extends Controller
         $user->update([
             'first_name'           => 'Deleted',
             'last_name'            => 'User',
-            'middle_initial'       => null,
+            'middle_name'          => null,
             'name'                 => 'Deleted User',
             'email'                => "deleted-user-{$user->id}@tierhome.invalid",
             'phone_number'         => '09' . str_pad($user->id, 9, '0', STR_PAD_LEFT),

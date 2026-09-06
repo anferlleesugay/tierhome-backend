@@ -149,7 +149,7 @@ class AuthController extends Controller
         $request->validate([
             'last_name'      => 'required|string|max:255',
             'first_name'     => 'required|string|max:255',
-            'middle_initial' => 'nullable|string|max:100',
+            'middle_name'    => 'nullable|string|max:100',
             'phone_number'   => ['required', 'digits:11', 'regex:/^09[0-9]{9}$/'],
             'email'          => 'required|email|unique:users,email',
             'password'       => 'required|min:8',
@@ -182,14 +182,14 @@ class AuthController extends Controller
         $otp->update(['used' => true]);
 
         $fullName = $request->first_name . ' ' .
-            ($request->middle_initial ? $request->middle_initial . '. ' : '') .
+            ($request->middle_name ? $request->middle_name . ' ' : '') .
             $request->last_name;
 
         $user = User::create([
             'name'                => $fullName,
             'last_name'           => $request->last_name,
             'first_name'          => $request->first_name,
-            'middle_initial'      => $request->middle_initial,
+            'middle_name'         => $request->middle_name,
             'phone_number'        => $request->phone_number,
             'email'               => $request->email,
             'password'            => Hash::make($request->password),
