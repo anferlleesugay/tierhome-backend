@@ -23,13 +23,22 @@ class ProfileController extends Controller
     }
 
     /**
-     * GET PUBLIC PROFILE (landlord viewable by anyone)
+     * GET PUBLIC PROFILE (viewable by anyone, no auth required)
+     *
+     * SECURITY: this route is intentionally public, but must only ever
+     * return display-safe fields. Previously this called formatUser(),
+     * which dumps the full user model (email, phone_number,
+     * verification_status internals, is_active, deactivation timestamps,
+     * etc.) for ANY user ID — allowing anyone to enumerate /profile/1,
+     * /profile/2, ... and harvest PII for every tenant and landlord on
+     * the platform. Use formatPublicUser() here instead, which whitelists
+     * only the fields the public profile page actually displays.
      */
     public function show($id)
     {
         $user = User::findOrFail($id);
 
-        $data = $this->formatUser($user);
+        $data = $this->formatPublicUser($user);
 
         // If landlord, include their active listings
         if ($user->role === 'landlord') {
@@ -147,6 +156,30 @@ class ProfileController extends Controller
             'data'    => $this->formatUser($user->fresh()),
             'message' => 'Profile picture updated successfully.',
         ]);
+    }
+
+    /**
+     * Format user data for the PUBLIC, unauthenticated profile endpoint.
+     * Whitelist only — do not swap this back to formatUser()/toArray().
+     * Excludes: email, phone_number, is_active, reactivation_requested_at,
+     * report_frequency, last_report_sent_at, and any other account/admin
+     * fields that aren't meant to be publicly readable by user ID.
+     */
+    private function formatPublicUser($user)
+    {
+        return [
+            'id'                  => $user->id,
+            'first_name'          => $user->first_name,
+            'last_name'           => $user->last_name,
+            'middle_initial'      => $user->middle_initial,
+            'name'                => $user->name,
+            'role'                => $user->role,
+            'verification_status' => $user->verification_status,
+            'profile_picture_url' => $user->profile_picture
+                ? url('storage/' . $user->profile_picture)
+                : null,
+            'created_at'          => $user->created_at,
+        ];
     }
 
     /**
