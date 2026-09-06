@@ -255,6 +255,46 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'message' => 'Logged out']);
     }
 
+    /**
+     * REFRESH TOKEN
+     * Issues a new access token from an existing one — works even if the
+     * old token has just expired, as long as it's within JWT_REFRESH_TTL
+     * and hasn't been blacklisted (e.g. via logout). This is what lets us
+     * run a short JWT_TTL (see .env) without forcing real users to log in
+     * again constantly: the frontend calls this in the background instead.
+     * Deliberately NOT behind 'auth:api' — that middleware would reject an
+     * already-expired token before this method ever runs.
+     */
+    public function refresh()
+    {
+        try {
+            $newToken = JWTAuth::parseToken()->refresh();
+        } catch (\Tymon\JWTAuth\Exceptions\TokenExpiredException $e) {
+            return response()->json(['success' => false, 'message' => 'Session expired. Please log in again.'], 401);
+        } catch (\Tymon\JWTAuth\Exceptions\TokenBlacklistedException $e) {
+            return response()->json(['success' => false, 'message' => 'Session invalid. Please log in again.'], 401);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Unable to refresh session.'], 401);
+        }
+
+        $user = JWTAuth::setToken($newToken)->toUser();
+
+        if (!$user || !$user->is_active) {
+            JWTAuth::setToken($newToken)->invalidate();
+            return response()->json([
+                'success'     => false,
+                'message'     => 'This account has been deactivated.',
+                'deactivated' => true,
+            ], 403);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => ['token' => $newToken, 'user' => $user],
+            'message' => 'Token refreshed',
+        ]);
+    }
+
     public function me()
     {
         return response()->json(['success' => true, 'data' => auth()->user()]);

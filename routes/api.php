@@ -48,6 +48,13 @@ Route::prefix('auth')->group(function () {
     // attacker (or a token farming service) hammering real credentials.
     Route::post('/login',           [AuthController::class, 'login'])->middleware('throttle:10,1,login');
 
+    // Silent token renewal (15g) — deliberately public/unauthenticated at
+    // the route level; the controller itself validates the token via
+    // JWTAuth::parseToken()->refresh(), which must be allowed to accept an
+    // already-expired (but not-yet-blacklisted, within-refresh-window)
+    // token — 'auth:api' middleware would reject that before it got here.
+    Route::post('/refresh',         [AuthController::class, 'refresh'])->middleware('throttle:20,1,refresh');
+
     // Deactivated account requesting reactivation — public, verifies
     // credentials itself. Had neither reCAPTCHA nor a rate limit (unlike
     // login), so this was the weaker password-checking endpoint.
