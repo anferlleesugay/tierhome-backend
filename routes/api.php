@@ -33,18 +33,25 @@ Route::prefix('auth')->group(function () {
     // attempt lock in OtpCode/AuthController, since neither existed before
     // and the 6-digit code was otherwise brute-forceable within its
     // 10-minute window.
-    Route::post('/send-otp',        [AuthController::class, 'sendOtp'])->middleware('throttle:5,1');
-    Route::post('/verify-otp',      [AuthController::class, 'verifyOtp'])->middleware('throttle:10,1');
-    Route::post('/register',        [AuthController::class, 'register'])->middleware('throttle:10,1');
+    //
+    // NOTE: the third throttle argument is an explicit bucket prefix.
+    // Laravel's basic throttle:max,decay middleware keys its rate limit by
+    // domain+IP only (not the route), so any two routes using the exact
+    // same max,decay numbers would silently share one combined bucket per
+    // IP without a distinct prefix here — confirmed by testing, where
+    // exhausting request-reactivation's budget also 429'd login.
+    Route::post('/send-otp',        [AuthController::class, 'sendOtp'])->middleware('throttle:5,1,send-otp');
+    Route::post('/verify-otp',      [AuthController::class, 'verifyOtp'])->middleware('throttle:10,1,verify-otp');
+    Route::post('/register',        [AuthController::class, 'register'])->middleware('throttle:10,1,register');
     // login: reCAPTCHA v3 covers bot/automated traffic, but had no rate
     // limit at all — throttle added as defense-in-depth against a human
     // attacker (or a token farming service) hammering real credentials.
-    Route::post('/login',           [AuthController::class, 'login'])->middleware('throttle:10,1');
+    Route::post('/login',           [AuthController::class, 'login'])->middleware('throttle:10,1,login');
 
     // Deactivated account requesting reactivation — public, verifies
     // credentials itself. Had neither reCAPTCHA nor a rate limit (unlike
     // login), so this was the weaker password-checking endpoint.
-    Route::post('/request-reactivation', [DeactivationRequestController::class, 'requestReactivation'])->middleware('throttle:10,1');
+    Route::post('/request-reactivation', [DeactivationRequestController::class, 'requestReactivation'])->middleware('throttle:10,1,reactivation');
 
     // Password reset
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
@@ -73,7 +80,7 @@ Route::get('/amenities', [AmenityController::class, 'index']);
 // Two-tier throttle, keyed by IP: a burst limit to stop rapid scripted
 // abuse, and a daily cap to bound total API spend even from a slow drip.
 Route::post('/chatbot/message', [ChatbotController::class, 'message'])
-    ->middleware(['throttle:15,1', 'throttle:200,1440']);
+    ->middleware(['throttle:15,1,chatbot-burst', 'throttle:200,1440,chatbot-daily']);
 
 Route::middleware(['auth:api', 'active'])->group(function () {
     // ✅ Notifications
