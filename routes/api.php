@@ -36,10 +36,15 @@ Route::prefix('auth')->group(function () {
     Route::post('/send-otp',        [AuthController::class, 'sendOtp'])->middleware('throttle:5,1');
     Route::post('/verify-otp',      [AuthController::class, 'verifyOtp'])->middleware('throttle:10,1');
     Route::post('/register',        [AuthController::class, 'register'])->middleware('throttle:10,1');
-    Route::post('/login',           [AuthController::class, 'login']);
+    // login: reCAPTCHA v3 covers bot/automated traffic, but had no rate
+    // limit at all — throttle added as defense-in-depth against a human
+    // attacker (or a token farming service) hammering real credentials.
+    Route::post('/login',           [AuthController::class, 'login'])->middleware('throttle:10,1');
 
-    // Deactivated account requesting reactivation — public, verifies credentials itself
-    Route::post('/request-reactivation', [DeactivationRequestController::class, 'requestReactivation']);
+    // Deactivated account requesting reactivation — public, verifies
+    // credentials itself. Had neither reCAPTCHA nor a rate limit (unlike
+    // login), so this was the weaker password-checking endpoint.
+    Route::post('/request-reactivation', [DeactivationRequestController::class, 'requestReactivation'])->middleware('throttle:10,1');
 
     // Password reset
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
