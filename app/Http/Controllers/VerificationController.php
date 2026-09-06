@@ -62,10 +62,16 @@ class VerificationController extends Controller
 
         // ============================
         // STORE FILES TO STORAGE
+        // SECURITY: these are government ID photos + selfies — stored on
+        // the private 'local' disk (storage/app/private), NOT the public
+        // disk. The public disk is symlinked and served directly by Nginx
+        // with no auth check, which meant anyone with the URL could view
+        // someone's ID/selfie. These are now only reachable through the
+        // authenticated image() action below.
         // ============================
         try {
-            $idPath = Storage::disk('public')->put('verifications/ids', $validated['id_photo']);
-            $selfiePath = Storage::disk('public')->put('verifications/selfies', $validated['selfie']);
+            $idPath = Storage::disk('local')->put('verifications/ids', $validated['id_photo']);
+            $selfiePath = Storage::disk('local')->put('verifications/selfies', $validated['selfie']);
         } catch (\Exception $e) {
             \Log::error('File storage error: ' . $e->getMessage());
             return response()->json([
@@ -81,8 +87,8 @@ class VerificationController extends Controller
         $score = 0;
 
         try {
-            $idImage = file_get_contents(storage_path("app/public/" . $idPath));
-            $selfieImage = file_get_contents(storage_path("app/public/" . $selfiePath));
+            $idImage = file_get_contents(storage_path("app/private/" . $idPath));
+            $selfieImage = file_get_contents(storage_path("app/private/" . $selfiePath));
 
             $comparisonResult = $this->rekognition->compareFaces([
                 'SourceImage' => ['Bytes' => $idImage],
@@ -215,9 +221,7 @@ class VerificationController extends Controller
     private function checkForDuplicateFace($selfiePath)
     {
         try {
-            $selfieImage = file_get_contents(storage_path("app/public/" . $selfiePath));
-
-            $searchResult = $this->rekognition->searchFacesByImage([
+            $selfieImage = file_get_contents(storage_path("app/private/" . $selfiePath));
                 'CollectionId' => $this->collectionId,
                 'Image' => ['Bytes' => $selfieImage],
                 'FaceMatchThreshold' => 90,
@@ -254,9 +258,7 @@ class VerificationController extends Controller
     private function indexFaceInCollection($userId, $selfiePath, $verification)
     {
         try {
-            $selfieImage = file_get_contents(storage_path("app/public/" . $selfiePath));
-
-            $indexResult = $this->rekognition->indexFaces([
+            $selfieImage = file_get_contents(storage_path("app/private/" . $selfiePath));
                 'CollectionId' => $this->collectionId,
                 'Image' => ['Bytes' => $selfieImage],
                 'ExternalImageId' => (string) $userId,
@@ -449,5 +451,38 @@ class VerificationController extends Controller
             'success' => true,
             'data' => $verified,
         ]);
+    }
+
+    /**
+     * ADMIN: serve an ID photo or selfie from the private disk.
+     * This route sits behind ['auth:api', 'admin', 'active'] in
+     * routes/api.php — that's what actually gates access now, replacing
+     * the old direct public-storage URL that had no auth check at all.
+     */
+    public function image($id, $type)
+    {
+        $verification = IdentityVerification::findOrFail($id);
+
+        $path = match ($type) {
+            'id'     => $verification->id_photo_path,
+            'selfie' => $verification->selfie_path,
+            default  => null,
+        };
+
+        if (!$path) {
+            abort(404);
+        }
+
+        // Verifications submitted before this fix have their files sitting
+        // on the old public disk location — fall back to that so existing
+        // pending/approved records don't break after the deploy.
+        if (Storage::disk('local')->exists($path)) {
+            return Storage::disk('local')->response($path);
+        }
+        if (Storage::disk('public')->exists($path)) {
+            return Storage::disk('public')->response($path);
+        }
+
+        abort(404);
     }
 }

@@ -156,6 +156,11 @@ Route::middleware(['auth:api', 'verified', 'active'])->group(function () {
 Route::middleware(['auth:api', 'admin', 'active'])->group(function () {
     Route::get('/admin/verify/pending', [VerificationController::class, 'pending']);
     Route::get('/admin/verify/{id}', [VerificationController::class, 'show']);
+    // Serves the actual ID/selfie image bytes from the private disk —
+    // this route is inside the ['auth:api','admin','active'] group above,
+    // which is what gates access now, replacing the old direct
+    // public-storage URL that had no auth check at all.
+    Route::get('/admin/verify/{id}/image/{type}', [VerificationController::class, 'image']);
     Route::post('/admin/verify/{id}/approve', [VerificationController::class, 'approve']);
     Route::post('/admin/verify/{id}/reject', [VerificationController::class, 'reject']);
     Route::get('/admin/verify/faces/verified', [VerificationController::class, 'listVerifiedFaces']);
