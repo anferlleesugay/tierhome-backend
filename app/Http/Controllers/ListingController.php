@@ -51,6 +51,15 @@ class ListingController extends Controller
                 $query->where('property_type', $request->type);
             }
 
+            // ✅ Smart filter: sort support. Defaults to newest-first instead
+            // of relying on whatever incidental order MySQL happens to
+            // return (there was no explicit orderBy before this).
+            match ($request->sort) {
+                'price_asc'  => $query->orderBy('price', 'asc'),
+                'price_desc' => $query->orderBy('price', 'desc'),
+                default      => $query->orderBy('created_at', 'desc'),
+            };
+
             $listings = $query->with(['amenities', 'images', 'landlord'])->paginate(12);
 
             return response()->json([
