@@ -19,6 +19,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'active'   => \App\Http\Middleware\EnsureAccountActive::class,
         ]);
         $middleware->appendToGroup('api', \App\Http\Middleware\TrackActivePlatform::class);
+
+        // Fixes a real bug found via pentest (15j): unauthenticated/expired
+        // requests without an explicit "Accept: application/json" header
+        // were crashing with a 500 (Authenticate::redirectTo() tries to
+        // route('login'), which doesn't exist in this SPA+API app) instead
+        // of a clean 401/422 JSON response. See ForceJsonResponse for
+        // the full explanation.
+        $middleware->prependToGroup('api', \App\Http\Middleware\ForceJsonResponse::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
