@@ -62,8 +62,13 @@ Route::get('/profile/{id}', [ProfileController::class, 'show']);
 // ✅ Public amenities list
 Route::get('/amenities', [AmenityController::class, 'index']);
 
-// ✅ Chatbot endpoint
-Route::post('/chatbot/message', [ChatbotController::class, 'message']);
+// ✅ Chatbot endpoint — public (no login required, so visitors can ask
+// questions before signing up), but was previously uncapped: anyone could
+// script requests against it and each one hits the paid Gemini API.
+// Two-tier throttle, keyed by IP: a burst limit to stop rapid scripted
+// abuse, and a daily cap to bound total API spend even from a slow drip.
+Route::post('/chatbot/message', [ChatbotController::class, 'message'])
+    ->middleware(['throttle:15,1', 'throttle:200,1440']);
 
 Route::middleware(['auth:api', 'active'])->group(function () {
     // ✅ Notifications
