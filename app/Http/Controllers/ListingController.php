@@ -158,6 +158,8 @@ class ListingController extends Controller
                 'message' => "Found " . count($listings) . " nearby listings"
             ]);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => 'Validation error', 'errors' => $e->errors()], 422);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'data' => null, 'message' => $e->getMessage()], 400);
         }
@@ -227,6 +229,8 @@ class ListingController extends Controller
                 'message' => 'Listing created successfully'
             ], 201);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => 'Validation error', 'errors' => $e->errors()], 422);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
@@ -310,6 +314,8 @@ class ListingController extends Controller
                 'message' => 'Listing updated successfully'
             ]);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => 'Validation error', 'errors' => $e->errors()], 422);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
