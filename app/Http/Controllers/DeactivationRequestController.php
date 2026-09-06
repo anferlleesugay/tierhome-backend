@@ -59,13 +59,15 @@ class DeactivationRequestController extends Controller
 
         $actionLabel = $type === 'delete' ? 'permanently delete' : 'deactivate';
 
+        $roleLabel = $user->role === 'landlord' ? 'Property Owner' : ucfirst($user->role);
+
         // Notify all admins
-        User::where('role', 'admin')->get()->each(function ($admin) use ($user, $actionLabel) {
+        User::where('role', 'admin')->get()->each(function ($admin) use ($user, $actionLabel, $roleLabel) {
             \App\Models\Notification::notify(
                 $admin->id,
                 'deactivation_request_pending',
                 'Account Deactivation Request',
-                "{$user->first_name} {$user->last_name} ({$user->role}) has requested to {$actionLabel} their account.",
+                "{$user->first_name} {$user->last_name} ({$roleLabel}) has requested to {$actionLabel} their account.",
                 '/admin/deactivation-requests'
             );
         });
