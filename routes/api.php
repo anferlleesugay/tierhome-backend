@@ -29,10 +29,13 @@ use App\Http\Controllers\DeactivationRequestController;
 */
 
 Route::prefix('auth')->group(function () {
-    // OTP registration flow
-    Route::post('/send-otp',        [AuthController::class, 'sendOtp']);
-    Route::post('/verify-otp',      [AuthController::class, 'verifyOtp']);
-    Route::post('/register',        [AuthController::class, 'register']);
+    // OTP registration flow — throttled per IP on top of the per-code
+    // attempt lock in OtpCode/AuthController, since neither existed before
+    // and the 6-digit code was otherwise brute-forceable within its
+    // 10-minute window.
+    Route::post('/send-otp',        [AuthController::class, 'sendOtp'])->middleware('throttle:5,1');
+    Route::post('/verify-otp',      [AuthController::class, 'verifyOtp'])->middleware('throttle:10,1');
+    Route::post('/register',        [AuthController::class, 'register'])->middleware('throttle:10,1');
     Route::post('/login',           [AuthController::class, 'login']);
 
     // Deactivated account requesting reactivation — public, verifies credentials itself

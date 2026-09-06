@@ -114,13 +114,27 @@ class AuthController extends Controller
             'code'  => 'required|string|size:6',
         ]);
 
+        // Look up by email only (not email+code) so a wrong guess still
+        // finds the record and can be counted against its attempt limit —
+        // previously baking the guessed code into the WHERE clause meant a
+        // wrong code just came back "not found" with nothing tracking how
+        // many times it had been tried, making the 6-digit code brute
+        // -forceable within its 10-minute window.
         $otp = OtpCode::where('email', $request->email)
-            ->where('code',  $request->code)
-            ->where('used',  false)
+            ->where('used', false)
             ->where('expires_at', '>', now())
+            ->latest()
             ->first();
 
-        if (!$otp) {
+        if (!$otp || $otp->isLocked()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or expired OTP. Please request a new code.',
+            ], 422);
+        }
+
+        if (!hash_equals($otp->code, $request->code)) {
+            $otp->increment('attempts');
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid or expired OTP.',
@@ -143,13 +157,22 @@ class AuthController extends Controller
             'otp_code'       => 'required|string|size:6',
         ]);
 
+        // Same attempt-locking lookup as verifyOtp() — see comment there.
         $otp = OtpCode::where('email', $request->email)
-            ->where('code',  $request->otp_code)
-            ->where('used',  false)
+            ->where('used', false)
             ->where('expires_at', '>', now())
+            ->latest()
             ->first();
 
-        if (!$otp) {
+        if (!$otp || $otp->isLocked()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or expired OTP. Please request a new code.',
+            ], 422);
+        }
+
+        if (!hash_equals($otp->code, $request->otp_code)) {
+            $otp->increment('attempts');
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid or expired OTP.',
