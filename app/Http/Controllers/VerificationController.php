@@ -221,12 +221,14 @@ class VerificationController extends Controller
     private function checkForDuplicateFace($selfiePath)
     {
         try {
-            $selfieImage = file_get_contents(storage_path("app/private/" . $selfiePath));
-                'CollectionId' => $this->collectionId,
-                'Image' => ['Bytes' => $selfieImage],
-                'FaceMatchThreshold' => 90,
-                'MaxFaces' => 1,
-            ]);
+                $selfieImage = file_get_contents(storage_path("app/private/" . $selfiePath));
+
+                    $searchResult = $this->rekognition->searchFacesByImage([
+                        'CollectionId' => $this->collectionId,
+                        'Image' => ['Bytes' => $selfieImage],
+                        'FaceMatchThreshold' => 90,
+                        'MaxFaces' => 1,
+                    ]);
 
             if (!empty($searchResult['FaceMatches'])) {
                 $existingUserId = $searchResult['FaceMatches'][0]['Face']['ExternalImageId'];
@@ -258,12 +260,14 @@ class VerificationController extends Controller
     private function indexFaceInCollection($userId, $selfiePath, $verification)
     {
         try {
-            $selfieImage = file_get_contents(storage_path("app/private/" . $selfiePath));
-                'CollectionId' => $this->collectionId,
-                'Image' => ['Bytes' => $selfieImage],
-                'ExternalImageId' => (string) $userId,
-                'DetectionAttributes' => ['DEFAULT'],
-            ]);
+                $selfieImage = file_get_contents(storage_path("app/private/" . $selfiePath));
+
+                $indexResult = $this->rekognition->indexFaces([
+                    'CollectionId' => $this->collectionId,
+                    'Image' => ['Bytes' => $selfieImage],
+                    'ExternalImageId' => (string) $userId,
+                    'DetectionAttributes' => ['DEFAULT'],
+                ]);
 
             if (!empty($indexResult['FaceRecords'])) {
                 $faceId = $indexResult['FaceRecords'][0]['Face']['FaceId'];
