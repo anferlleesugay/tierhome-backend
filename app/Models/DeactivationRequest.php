@@ -8,6 +8,7 @@ class DeactivationRequest extends Model
 {
     protected $fillable = [
         'user_id',
+        'type',
         'reason',
         'status',
         'admin_note',

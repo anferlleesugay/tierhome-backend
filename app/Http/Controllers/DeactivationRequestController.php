@@ -3,13 +3,33 @@
 namespace App\Http\Controllers;
 
 use App\Models\DeactivationRequest;
+use App\Models\IdentityVerification;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Aws\Rekognition\RekognitionClient;
+use Aws\Exception\AwsException;
 
 class DeactivationRequestController extends Controller
 {
+    protected $rekognition;
+    protected $collectionId = 'tierhome-users';
+
+    public function __construct()
+    {
+        $this->rekognition = new RekognitionClient([
+            'version' => 'latest',
+            'region' => config('services.aws.region'),
+            'credentials' => [
+                'key' => config('services.aws.key'),
+                'secret' => config('services.aws.secret'),
+            ],
+        ]);
+    }
     /**
-     * SUBMIT a deactivation request (Tenant or Landlord)
+     * SUBMIT a deactivation or deletion request (Tenant or Landlord)
      */
     public function submit(Request $request)
     {
@@ -20,31 +40,41 @@ class DeactivationRequestController extends Controller
             ->first();
 
         if ($existing) {
-            return response()->json(['success' => false, 'message' => 'You already have a pending deactivation request.'], 422);
+            return response()->json(['success' => false, 'message' => 'You already have a pending ' . $existing->type . ' request.'], 422);
         }
 
         $validated = $request->validate([
             'reason' => 'nullable|string|max:500',
+            'type'   => 'nullable|string|in:deactivate,delete',
         ]);
+
+        $type = $validated['type'] ?? 'deactivate';
 
         $reqModel = DeactivationRequest::create([
             'user_id' => $user->id,
+            'type'    => $type,
             'reason'  => $validated['reason'] ?? null,
             'status'  => 'pending',
         ]);
 
+        $actionLabel = $type === 'delete' ? 'permanently delete' : 'deactivate';
+
         // Notify all admins
-        User::where('role', 'admin')->get()->each(function ($admin) use ($user) {
+        User::where('role', 'admin')->get()->each(function ($admin) use ($user, $actionLabel) {
             \App\Models\Notification::notify(
                 $admin->id,
                 'deactivation_request_pending',
                 'Account Deactivation Request',
-                "{$user->first_name} {$user->last_name} ({$user->role}) has requested to deactivate their account.",
+                "{$user->first_name} {$user->last_name} ({$user->role}) has requested to {$actionLabel} their account.",
                 '/admin/deactivation-requests'
             );
         });
 
-        return response()->json(['success' => true, 'message' => 'Deactivation request submitted for admin review.', 'data' => $reqModel]);
+        $message = $type === 'delete'
+            ? 'Deletion request submitted for admin review.'
+            : 'Deactivation request submitted for admin review.';
+
+        return response()->json(['success' => true, 'message' => $message, 'data' => $reqModel]);
     }
 
     /**
@@ -92,7 +122,8 @@ class DeactivationRequestController extends Controller
     }
 
     /**
-     * ADMIN: approve — deactivates the account
+     * ADMIN: approve — deactivates OR permanently deletes the account,
+     * depending on the request's type.
      */
     public function approve(Request $request, $id)
     {
@@ -109,6 +140,20 @@ class DeactivationRequestController extends Controller
             'admin_note'  => $validated['admin_note'] ?? null,
             'reviewed_at' => now(),
         ]);
+
+        if ($reqModel->type === 'delete') {
+            $this->performAccountDeletion($reqModel->user);
+
+            \App\Models\AuditLog::record(
+                auth()->id(),
+                'account_deleted',
+                'User',
+                $reqModel->user_id,
+                "Approved and executed permanent deletion request for user #{$reqModel->user_id}."
+            );
+
+            return response()->json(['success' => true, 'message' => 'Account permanently deleted.']);
+        }
 
         $reqModel->user->update(['is_active' => false]);
 
@@ -129,6 +174,94 @@ class DeactivationRequestController extends Controller
         );
 
         return response()->json(['success' => true, 'message' => 'Account deactivated successfully.']);
+    }
+
+    /**
+     * Anonymize a user's personal data and purge their biometric data.
+     *
+     * Does NOT hard-delete the user row — listings, reservations, and
+     * messages all reference user_id, and other people (landlords, other
+     * tenants) legitimately still need those shared records to remain
+     * intact. This scrubs only THIS user's personal identifying data,
+     * consistent with a "right to erasure" request rather than a raw
+     * `DELETE FROM users`.
+     *
+     * Also purges their face from the AWS Rekognition collection — without
+     * this, re-registering later would be wrongly rejected by the
+     * duplicate-face check (VerificationController::checkForDuplicateFace),
+     * since their old face entry would still be indexed there pointing at
+     * an account that (from their perspective) no longer meaningfully exists.
+     */
+    private function performAccountDeletion(User $user): void
+    {
+        // 1. Remove their face(s) from the Rekognition collection.
+        // Best-effort: an AWS hiccup here shouldn't block the rest of the
+        // deletion, so failures are logged, not thrown.
+        $verifications = IdentityVerification::where('user_id', $user->id)
+            ->whereNotNull('face_id')
+            ->get();
+
+        foreach ($verifications as $verification) {
+            try {
+                $this->rekognition->deleteFaces([
+                    'CollectionId' => $verification->collection_id ?? $this->collectionId,
+                    'FaceIds'      => [$verification->face_id],
+                ]);
+            } catch (AwsException $e) {
+                \Log::warning("Failed to delete Rekognition face for user {$user->id}: " . $e->getMessage());
+            }
+
+            // Delete the actual ID/selfie image files. Check both disks —
+            // verifications from before the 15c private-storage fix may
+            // still be sitting on the old public disk.
+            foreach (['id_photo_path', 'selfie_path'] as $field) {
+                $path = $verification->$field;
+                if (!$path) continue;
+                try {
+                    if (Storage::disk('local')->exists($path)) {
+                        Storage::disk('local')->delete($path);
+                    }
+                    if (Storage::disk('public')->exists($path)) {
+                        Storage::disk('public')->delete($path);
+                    }
+                } catch (\Exception $e) {
+                    \Log::warning("Failed to delete verification file for user {$user->id}: " . $e->getMessage());
+                }
+            }
+
+            // Clear the now-invalid references, but keep the row itself
+            // (score/status/timestamps) for historical audit purposes —
+            // none of that is personally identifying on its own.
+            $verification->update([
+                'id_photo_path' => null,
+                'selfie_path'   => null,
+                'face_id'       => null,
+            ]);
+        }
+
+        // 2. Delete their profile picture file.
+        if ($user->profile_picture) {
+            try {
+                Storage::disk('public')->delete($user->profile_picture);
+            } catch (\Exception $e) {
+                \Log::warning("Failed to delete profile picture for user {$user->id}: " . $e->getMessage());
+            }
+        }
+
+        // 3. Anonymize the user record. Email/phone need unique placeholder
+        // values (not null) since those columns carry unique constraints.
+        $user->update([
+            'first_name'           => 'Deleted',
+            'last_name'            => 'User',
+            'middle_initial'       => null,
+            'name'                 => 'Deleted User',
+            'email'                => "deleted-user-{$user->id}@tierhome.invalid",
+            'phone_number'         => '09' . str_pad($user->id, 9, '0', STR_PAD_LEFT),
+            'profile_picture'      => null,
+            'password'             => Hash::make(Str::random(40)),
+            'verification_status'  => 'unverified',
+            'is_active'            => false,
+        ]);
     }
 
     /**
