@@ -61,12 +61,7 @@ class ChatbotController extends Controller
         if (in_array($user?->role, [null, 'tenant'], true)) {
             $intent = $this->detectListingSearchIntent($userMessage);
             if ($intent) {
-                // ✅ FIX: detectListingSearchIntent() returns ['area' => ...],
-                // this previously read $intent['barangay'] — a leftover key
-                // name from before the area/barangay+address rework, which
-                // meant the detected area was always silently dropped as
-                // null here, regardless of what the user actually typed.
-                $listingContext = $this->fetchListingsForChat($intent['area']);
+                $listingContext = $this->fetchListingsForChat($intent['area'], $intent['type']);
             }
         }
 
@@ -110,28 +105,40 @@ class ChatbotController extends Controller
      * cases correctly instead of reporting a false "no listings found."
      */
     protected $angelesCityBarangays = [
-        'Agapito del Rosario', 'Amsic', 'Anunas', 'Asturias', 'Balibago',
-        'Capaya', 'Claro M. Recto', 'Cuayan', 'Cutcut', 'Cutud',
-        'Lourdes Norte', 'Lourdes Sur', 'Lourdes Sur East', 'Malabanias',
-        'Margot', 'Mining', 'Ninoy Aquino', 'Pampang', 'Pandan',
-        'Pulung Cacutud', 'Pulung Maragul', 'Salapungan', 'San Jose',
+        'Agapito del Rosario', 'Amsic', 'Anunas', 'Balibago', 'Capaya',
+        'Claro M. Recto', 'Cuayan', 'Cutcut', 'Cutud', 'Lourdes North West',
+        'Lourdes Sur', 'Lourdes Sur East', 'Malabanias', 'Margot', 'Mining',
+        'Ninoy Aquino', 'Pampang', 'Pandan', 'Pulung Bulu', 'Pulung Cacutud',
+        'Pulung Maragul', 'Pulungmasle', 'Salapungan', 'San Jose',
         'San Nicolas', 'Santa Teresita', 'Santa Trinidad', 'Santo Cristo',
         'Santo Domingo', 'Santo Rosario', 'Sapalibutad', 'Sapangbato',
-        'Tabun', 'Virgen Delos Remedios',
+        'Virgen Delos Remedios',
+    ];
+
+    /**
+     * Property types recognized in a user's message, matching the same
+     * types used in the platform's own listing filters. Checked alongside
+     * the barangay/area match, so "find me a dormitory in Balibago" can
+     * filter on both, not just the area.
+     */
+    protected $propertyTypes = [
+        'house', 'apartment', 'condo', 'studio', 'dormitory',
+        'boarding house', 'bedspace',
     ];
 
     /**
      * Checks whether the message reads like a listing search request, and if
-     * so, tries to recognize a real Angeles City barangay name in it. This
-     * is matched against the OFFICIAL barangay list, not against whatever
-     * values currently sit in the barangay column — see fetchListingsForChat()
-     * for why that distinction matters.
+     * so, tries to recognize a real Angeles City barangay name AND/OR a
+     * property type in it. Barangay is matched against the OFFICIAL
+     * barangay list, not against whatever values currently sit in the
+     * barangay column — see fetchListingsForChat() for why that distinction
+     * matters.
      *
      * Returns null if this doesn't look like a search at all. Returns
-     * ['area' => null] for a general "find me a home" with no specific area
-     * named. Returns ['area' => 'Balibago'] (etc.) when a real barangay name
-     * is recognized in the message, regardless of whether any listing's
-     * barangay column happens to say that exact value.
+     * ['area' => null, 'type' => null] for a general "find me a home" with
+     * neither a specific area nor type named. Either or both of 'area' and
+     * 'type' can be populated independently — e.g. "find me a dormitory in
+     * Balibago" sets both, "find me a studio" sets only 'type'.
      */
     protected function detectListingSearchIntent(string $message): ?array
     {
@@ -156,7 +163,15 @@ class ChatbotController extends Controller
             }
         }
 
-        return ['area' => $matchedArea];
+        $matchedType = null;
+        foreach ($this->propertyTypes as $type) {
+            if (str_contains($lower, $type)) {
+                $matchedType = $type;
+                break;
+            }
+        }
+
+        return ['area' => $matchedArea, 'type' => $matchedType];
     }
 
     /**
@@ -176,8 +191,11 @@ class ChatbotController extends Controller
      * correctly in the full address. Checking address too means a search
      * for "Balibago" still finds that listing instead of reporting a false
      * "no listings found."
+     *
+     * property_type is matched case-insensitively against the requested
+     * type, when one was detected in the message.
      */
-    protected function fetchListingsForChat(?string $area): array
+    protected function fetchListingsForChat(?string $area, ?string $type = null): array
     {
         $query = PropertyListing::where('is_verified', 1)
             ->where('status', 'available');
@@ -187,6 +205,10 @@ class ChatbotController extends Controller
                 $q->where('barangay', 'like', "%{$area}%")
                   ->orWhere('address', 'like', "%{$area}%");
             });
+        }
+
+        if ($type) {
+            $query->whereRaw('LOWER(property_type) = ?', [strtolower($type)]);
         }
 
         return $query->orderBy('created_at', 'desc')
