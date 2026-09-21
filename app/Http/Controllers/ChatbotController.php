@@ -61,7 +61,12 @@ class ChatbotController extends Controller
         if (in_array($user?->role, [null, 'tenant'], true)) {
             $intent = $this->detectListingSearchIntent($userMessage);
             if ($intent) {
-                $listingContext = $this->fetchListingsForChat($intent['barangay']);
+                // ✅ FIX: detectListingSearchIntent() returns ['area' => ...],
+                // this previously read $intent['barangay'] — a leftover key
+                // name from before the area/barangay+address rework, which
+                // meant the detected area was always silently dropped as
+                // null here, regardless of what the user actually typed.
+                $listingContext = $this->fetchListingsForChat($intent['area']);
             }
         }
 
@@ -81,22 +86,52 @@ class ChatbotController extends Controller
             Log::warning('Failed to log chatbot exchange: ' . $e->getMessage());
         }
 
+        // Structured listing data goes alongside the text response so the
+        // frontend can render an actual clickable link/card per listing,
+        // rather than the user having to tap a plain-text path mentioned
+        // inside the message.
         return response()->json([
             'success' => true,
-            'data'    => ['response' => $response],
+            'data'    => [
+                'response' => $response,
+                'listings' => $listingContext ?? [],
+            ],
         ]);
     }
 
     /**
+     * Complete official list of Angeles City barangays. Used to recognize
+     * area names in a user's message — deliberately NOT limited to whatever
+     * happens to be an exact value in the barangay column right now, since
+     * some listings store a subdivision name there instead (e.g. "Villasol
+     * Subdivision" for a property that's actually in Balibago, per its own
+     * address field). Matching against the full official list, then
+     * searching both barangay AND address for that name, catches these
+     * cases correctly instead of reporting a false "no listings found."
+     */
+    protected $angelesCityBarangays = [
+        'Agapito del Rosario', 'Amsic', 'Anunas', 'Asturias', 'Balibago',
+        'Capaya', 'Claro M. Recto', 'Cuayan', 'Cutcut', 'Cutud',
+        'Lourdes Norte', 'Lourdes Sur', 'Lourdes Sur East', 'Malabanias',
+        'Margot', 'Mining', 'Ninoy Aquino', 'Pampang', 'Pandan',
+        'Pulung Cacutud', 'Pulung Maragul', 'Salapungan', 'San Jose',
+        'San Nicolas', 'Santa Teresita', 'Santa Trinidad', 'Santo Cristo',
+        'Santo Domingo', 'Santo Rosario', 'Sapalibutad', 'Sapangbato',
+        'Tabun', 'Virgen Delos Remedios',
+    ];
+
+    /**
      * Checks whether the message reads like a listing search request, and if
-     * so, tries to match a specific barangay against what's ACTUALLY in the
-     * approved listings table right now — never a hardcoded barangay list,
-     * so it always stays in sync with real, currently-bookable inventory.
+     * so, tries to recognize a real Angeles City barangay name in it. This
+     * is matched against the OFFICIAL barangay list, not against whatever
+     * values currently sit in the barangay column — see fetchListingsForChat()
+     * for why that distinction matters.
      *
      * Returns null if this doesn't look like a search at all. Returns
-     * ['barangay' => null] for a general "find me a home" with no specific
-     * area named. Returns ['barangay' => 'Balibago'] (etc.) when a real,
-     * currently-listed barangay is mentioned.
+     * ['area' => null] for a general "find me a home" with no specific area
+     * named. Returns ['area' => 'Balibago'] (etc.) when a real barangay name
+     * is recognized in the message, regardless of whether any listing's
+     * barangay column happens to say that exact value.
      */
     protected function detectListingSearchIntent(string $message): ?array
     {
@@ -113,34 +148,45 @@ class ChatbotController extends Controller
             return null;
         }
 
-        $barangays = PropertyListing::where('status', 'approved')
-            ->whereNotNull('barangay')
-            ->distinct()
-            ->pluck('barangay');
-
-        $matchedBarangay = null;
-        foreach ($barangays as $b) {
-            $needle = trim(str_ireplace('barangay', '', strtolower($b)));
-            if ($needle !== '' && str_contains($lower, $needle)) {
-                $matchedBarangay = $b;
+        $matchedArea = null;
+        foreach ($this->angelesCityBarangays as $barangay) {
+            if (str_contains($lower, strtolower($barangay))) {
+                $matchedArea = $barangay;
                 break;
             }
         }
 
-        return ['barangay' => $matchedBarangay];
+        return ['area' => $matchedArea];
     }
 
     /**
      * Fetches real, currently-approved listings for the chatbot to
      * recommend. Deliberately small (3 max) — this is a conversational
      * suggestion, not a full search results page.
+     *
+     * A listing is recommendable when it's been admin-approved
+     * (is_verified = 1) AND is currently open for reservations
+     * (status = 'available') — NOT a single 'approved' status value,
+     * which doesn't exist in this schema.
+     *
+     * Searches BOTH the barangay column and the address field for the
+     * requested area — some listings store a subdivision name in barangay
+     * rather than the official barangay (e.g. "Villasol Subdivision"
+     * instead of "Balibago"), even though the actual barangay is named
+     * correctly in the full address. Checking address too means a search
+     * for "Balibago" still finds that listing instead of reporting a false
+     * "no listings found."
      */
-    protected function fetchListingsForChat(?string $barangay): array
+    protected function fetchListingsForChat(?string $area): array
     {
-        $query = PropertyListing::where('status', 'approved');
+        $query = PropertyListing::where('is_verified', 1)
+            ->where('status', 'available');
 
-        if ($barangay) {
-            $query->where('barangay', $barangay);
+        if ($area) {
+            $query->where(function ($q) use ($area) {
+                $q->where('barangay', 'like', "%{$area}%")
+                  ->orWhere('address', 'like', "%{$area}%");
+            });
         }
 
         return $query->orderBy('created_at', 'desc')
