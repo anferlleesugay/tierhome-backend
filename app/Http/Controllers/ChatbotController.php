@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ChatbotLog;
+use App\Models\PropertyListing;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -29,6 +30,20 @@ class ChatbotController extends Controller
         'amenit'         => "Amenities are shown on each listing page. Property Owners can also request new amenity types if the one they need isn't listed.",
     ];
 
+    /**
+     * Loose keyword signal that the user is asking to find/browse a rental,
+     * not just asking a general question about the platform. Deliberately
+     * broad — a false positive here just means we attempt a listing lookup
+     * that may come back empty, which is handled gracefully either way.
+     */
+    protected $searchIntentPhrases = [
+        'find me', 'find a', 'looking for', 'search for', 'show me',
+        'any listing', 'any house', 'any apartment', 'any condo',
+        'available', 'home in', 'house in', 'apartment in', 'place in',
+        'rent in', 'condo in', 'room in', 'unit in', 'property in',
+        'looking to rent', 'want to rent',
+    ];
+
     public function message(Request $request)
     {
         $validated = $request->validate([
@@ -36,9 +51,21 @@ class ChatbotController extends Controller
         ]);
 
         $userMessage = $validated['message'];
-        $userId = auth('api')->id();
+        $user        = auth('api')->user();
+        $userId      = $user?->id;
 
-        $response = $this->askGemini($userMessage);
+        // Listing search capability: guests (null role) and tenants only.
+        // Property Owners and Admins get the normal FAQ-only chatbot —
+        // browsing rentals for themselves isn't relevant to those roles.
+        $listingContext = null;
+        if (in_array($user?->role, [null, 'tenant'], true)) {
+            $intent = $this->detectListingSearchIntent($userMessage);
+            if ($intent) {
+                $listingContext = $this->fetchListingsForChat($intent['barangay']);
+            }
+        }
+
+        $response = $this->askGemini($userMessage, $listingContext);
 
         if (!$response) {
             $response = $this->fallbackAnswer($userMessage);
@@ -61,9 +88,76 @@ class ChatbotController extends Controller
     }
 
     /**
-     * Call Gemini API. Returns null on any failure so the caller can fall back.
+     * Checks whether the message reads like a listing search request, and if
+     * so, tries to match a specific barangay against what's ACTUALLY in the
+     * approved listings table right now — never a hardcoded barangay list,
+     * so it always stays in sync with real, currently-bookable inventory.
+     *
+     * Returns null if this doesn't look like a search at all. Returns
+     * ['barangay' => null] for a general "find me a home" with no specific
+     * area named. Returns ['barangay' => 'Balibago'] (etc.) when a real,
+     * currently-listed barangay is mentioned.
      */
-    protected function askGemini(string $userMessage): ?string
+    protected function detectListingSearchIntent(string $message): ?array
+    {
+        $lower = strtolower($message);
+
+        $hasSearchIntent = false;
+        foreach ($this->searchIntentPhrases as $phrase) {
+            if (str_contains($lower, $phrase)) {
+                $hasSearchIntent = true;
+                break;
+            }
+        }
+        if (!$hasSearchIntent) {
+            return null;
+        }
+
+        $barangays = PropertyListing::where('status', 'approved')
+            ->whereNotNull('barangay')
+            ->distinct()
+            ->pluck('barangay');
+
+        $matchedBarangay = null;
+        foreach ($barangays as $b) {
+            $needle = trim(str_ireplace('barangay', '', strtolower($b)));
+            if ($needle !== '' && str_contains($lower, $needle)) {
+                $matchedBarangay = $b;
+                break;
+            }
+        }
+
+        return ['barangay' => $matchedBarangay];
+    }
+
+    /**
+     * Fetches real, currently-approved listings for the chatbot to
+     * recommend. Deliberately small (3 max) — this is a conversational
+     * suggestion, not a full search results page.
+     */
+    protected function fetchListingsForChat(?string $barangay): array
+    {
+        $query = PropertyListing::where('status', 'approved');
+
+        if ($barangay) {
+            $query->where('barangay', $barangay);
+        }
+
+        return $query->orderBy('created_at', 'desc')
+            ->limit(3)
+            ->get(['id', 'title', 'price', 'barangay', 'property_type'])
+            ->toArray();
+    }
+
+    /**
+     * Call Gemini API. Returns null on any failure so the caller can fall back.
+     *
+     * $listingContext, when not null, means a listing search was attempted:
+     *   - a non-empty array = real listings to recommend by name/price
+     *   - an empty array = search was attempted but nothing matched, so
+     *     Gemini is told explicitly not to invent a result
+     */
+    protected function askGemini(string $userMessage, ?array $listingContext = null): ?string
     {
         $apiKey = config('services.gemini.key');
         $model  = config('services.gemini.model', 'gemini-2.5-flash-lite');
@@ -84,6 +178,26 @@ class ChatbotController extends Controller
             . "IMPORTANT: TierHome accepts ANY valid photo ID for verification, not just "
             . "government-issued ones. Never describe the ID requirement as \"government-issued,\" "
             . "\"government ID,\" or \"valid government ID\" -- always say \"valid ID\" or \"any valid ID\" instead.";
+
+        if ($listingContext !== null) {
+            if (count($listingContext) > 0) {
+                $listingsText = collect($listingContext)->map(function ($l) {
+                    return "- \"{$l['title']}\" in {$l['barangay']}, ₱" . number_format($l['price'])
+                        . "/month ({$l['property_type']}) — view it at /listing/{$l['id']}";
+                })->implode("\n");
+
+                $systemPrompt .= "\n\nThe user is looking for a rental. Here are REAL, currently "
+                    . "approved listings matching their request:\n{$listingsText}\n\nRecommend these "
+                    . "specific listings naturally in your response, mentioning the name, price, and "
+                    . "that they can view more details at the listed page path. Do not invent, "
+                    . "describe, or mention any listing other than the ones given above.";
+            } else {
+                $systemPrompt .= "\n\nThe user is looking for a rental in a specific area, but there "
+                    . "are currently no approved listings matching that area. Say so politely, and "
+                    . "suggest they browse all listings or try a different barangay. Do not invent a "
+                    . "listing that doesn't exist.";
+            }
+        }
 
         try {
             $res = Http::timeout(15)->post(
@@ -119,6 +233,9 @@ class ChatbotController extends Controller
 
     /**
      * Simple keyword-matching fallback, used only if Gemini is unavailable.
+     * Deliberately does NOT attempt listing search — the fallback path has
+     * no way to safely retrieve/verify real data without Gemini to phrase
+     * it, so it sticks to FAQ answers only, same as before this feature.
      */
     protected function fallbackAnswer(string $message): string
     {
