@@ -73,7 +73,7 @@ class ChatbotController extends Controller
         $response = $this->askGemini($userMessage, $listingContext);
 
         if (!$response) {
-            $response = $this->fallbackAnswer($userMessage);
+            $response = $this->fallbackAnswer($userMessage, $listingContext);
         }
 
         try {
@@ -279,12 +279,20 @@ class ChatbotController extends Controller
 
     /**
      * Simple keyword-matching fallback, used only if Gemini is unavailable.
-     * Deliberately does NOT attempt listing search — the fallback path has
-     * no way to safely retrieve/verify real data without Gemini to phrase
-     * it, so it sticks to FAQ answers only, same as before this feature.
+     * The listing SEARCH itself doesn't depend on Gemini at all (that's our
+     * own DB query) — only the natural-language phrasing does. So if we
+     * already found real listings before Gemini failed, acknowledge them
+     * here directly instead of returning a fully generic apology right
+     * above an actual useful listing card.
      */
-    protected function fallbackAnswer(string $message): string
+    protected function fallbackAnswer(string $message, ?array $listingContext = null): string
     {
+        if ($listingContext !== null && count($listingContext) > 0) {
+            return "I'm having trouble reaching my full assistant right now, but I found "
+                . (count($listingContext) === 1 ? "a listing" : "some listings")
+                . " that might match what you're looking for below!";
+        }
+
         $lower = strtolower($message);
 
         foreach ($this->fallbackFaqs as $keyword => $answer) {
